@@ -1,6 +1,6 @@
 import pytest
 
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings, validate_production_settings
 
 
 @pytest.fixture(autouse=True)
@@ -22,6 +22,15 @@ def test_settings_reads_cors_origins_from_csv(monkeypatch) -> None:
         "https://qa.example.com",
         "https://admin.example.com",
     ]
+
+
+def test_settings_reads_app_environment(monkeypatch) -> None:
+    monkeypatch.setenv("APP_ENV", "production")
+
+    settings = get_settings()
+
+    assert settings.app_env == "production"
+    assert settings.is_production is True
 
 
 def test_settings_disables_credentials_when_cors_origin_is_wildcard(monkeypatch) -> None:
@@ -92,3 +101,55 @@ def test_settings_reads_generation_history_configuration(monkeypatch) -> None:
 
     assert settings.generation_history_enabled is False
     assert settings.generation_history_db_path == "data/history-test.sqlite3"
+
+
+def test_production_validation_is_disabled_for_development_defaults() -> None:
+    assert validate_production_settings(Settings()) == []
+
+
+def test_production_validation_rejects_unsafe_defaults() -> None:
+    errors = validate_production_settings(Settings(app_env="production"))
+
+    assert any("APP_API_KEY" in error for error in errors)
+    assert any("ZHIPU_API_KEY" in error for error in errors)
+    assert any("localhost origins" in error for error in errors)
+    assert any("EMBEDDING_PROVIDER" in error and "hash" in error for error in errors)
+
+
+def test_production_validation_accepts_hardened_settings() -> None:
+    errors = validate_production_settings(
+        Settings(
+            app_env="production",
+            app_api_key="prod-service-key-1234567890",
+            zhipu_api_key="prod-zhipu-key-1234567890",
+            cors_allow_origins=["https://qa.example.com"],
+            embedding_provider="sentence_transformers",
+            embedding_local_files_only=True,
+            generation_history_db_path="data/app.sqlite3",
+        )
+    )
+
+    assert errors == []
+
+
+def test_production_validation_rejects_disabled_runtime_guards() -> None:
+    errors = validate_production_settings(
+        Settings(
+            app_env="prod",
+            app_api_key="prod-service-key-1234567890",
+            zhipu_api_key="prod-zhipu-key-1234567890",
+            cors_allow_origins=["https://qa.example.com"],
+            embedding_provider="sentence_transformers",
+            embedding_local_files_only=False,
+            rate_limit_enabled=False,
+            request_log_enabled=False,
+            generation_history_enabled=False,
+            generation_history_db_path=":memory:",
+        )
+    )
+
+    assert any("EMBEDDING_LOCAL_FILES_ONLY" in error for error in errors)
+    assert any("RATE_LIMIT_ENABLED" in error for error in errors)
+    assert any("REQUEST_LOG_ENABLED" in error for error in errors)
+    assert any("GENERATION_HISTORY_ENABLED" in error for error in errors)
+    assert any("GENERATION_HISTORY_DB_PATH" in error for error in errors)

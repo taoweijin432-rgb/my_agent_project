@@ -269,6 +269,7 @@ Prompt 相关代码在 `app/services/prompt.py`。
 
 ```text
 APP_API_KEY
+APP_ENV
 ZHIPU_API_KEY
 ZHIPU_BASE_URL
 ZHIPU_CHAT_MODEL
@@ -294,6 +295,8 @@ CORS_ALLOW_CREDENTIALS
 项目也兼容读取当前已有的 `.env/config.py`。
 
 注意：`.env/config.py` 里如果有真实 API Key 或服务调用密钥，不要提交到版本库。除 `/health` 外，业务接口需要在请求头携带 `X-API-Key`。服务会为响应增加 `X-Request-ID` 和 `X-Process-Time-ms`，并默认对 `/api/v1/*` 做内存级限流。生成接口还会默认把生成请求、响应、失败原因和耗时写入 `GENERATION_HISTORY_DB_PATH` 指向的 SQLite 数据库。
+
+生产环境应设置 `APP_ENV=production`。此时应用会在启动时强制校验关键配置，包括真实服务密钥、真实模型密钥、HTTPS CORS 来源、语义 embedding、限流、请求日志和持久化历史库路径；校验失败会拒绝启动。
 
 ## 11. 如何启动
 

@@ -28,6 +28,7 @@
 | ISSUE-013 | medium | done | 生成结果未落库，无法审计、回放和统计生成质量 |
 | ISSUE-014 | medium | done | 知识库缺少文档级更新、删除和当前版本管理能力 |
 | ISSUE-015 | medium | done | 生成历史缺少质量评分，难以筛选和回放低质量结果 |
+| ISSUE-016 | high | done | 生产环境缺少启动前配置校验，可能带不安全默认值上线 |
 
 ## 问题详情
 
@@ -185,9 +186,19 @@
 - 修复：新增 `GenerationQualityReport` 和本地评分服务；`GET /api/v1/generation-records/{record_id}` 对成功记录返回 `quality`，失败记录返回 `quality=null`。
 - 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `56 passed, 3 warnings`。
 
+### ISSUE-016 生产环境缺少启动前配置校验，可能带不安全默认值上线
+
+- 严重级别：`high`
+- 状态：`done`
+- 位置：`app/core/config.py`、`app/main.py`
+- 影响：此前开发默认配置可以直接启动。如果部署时误用默认 CORS、本地 hash embedding、占位 key、关闭限流或内存历史库，服务可能在看似正常的状态下进入生产环境，带来安全、质量和审计风险。
+- 建议：增加 `APP_ENV`；当 `APP_ENV=production` 时，在应用启动阶段强制校验生产关键配置，不满足要求直接拒绝启动。
+- 修复：新增 `APP_ENV` 和 `validate_startup_settings()`；生产环境会校验真实 `APP_API_KEY`、真实 `ZHIPU_API_KEY`、HTTPS CORS 来源、非 `hash` embedding、`EMBEDDING_LOCAL_FILES_ONLY=true`、启用限流、启用请求日志、启用生成历史和持久化历史库路径。
+- 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `63 passed, 3 warnings`。
+
 ## 本次检查记录
 
 - 已读：`README.md`、`docs/project-guide.md`、`requirements.txt`、核心 `app/` 模块、`scripts/`、`tests/`。
 - 已运行：`.\.venv\Scripts\python.exe -m pytest -q`
-- 结果：`56 passed, 3 warnings`
+- 结果：`63 passed, 3 warnings`
 - 限制：已完成健康检查和一次真实生成烟测；当前目录已初始化 Git，并已创建首次提交。

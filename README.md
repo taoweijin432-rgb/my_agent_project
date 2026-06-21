@@ -70,6 +70,7 @@ docker run --rm -p 8000:8000 --env-file .env.runtime ai-testcase-generator
 
 ```text
 APP_API_KEY
+APP_ENV
 ZHIPU_API_KEY
 ZHIPU_BASE_URL
 ZHIPU_CHAT_MODEL
@@ -103,6 +104,8 @@ X-API-Key: your-service-api-key
 应用默认对 `/api/v1/*` 启用内存级限流：每个调用方每 60 秒最多 60 次请求。可以通过 `RATE_LIMIT_ENABLED`、`RATE_LIMIT_REQUESTS` 和 `RATE_LIMIT_WINDOW_SECONDS` 调整。公网部署时仍建议在 API 网关或反向代理层增加限流、HTTPS 和访问日志。
 
 生成接口默认会把请求、响应摘要、完整响应 JSON、失败原因和耗时写入 SQLite：`GENERATION_HISTORY_DB_PATH=data/app.sqlite3`。该数据库属于运行数据，已被 `.gitignore` 排除；部署时应挂载到持久化数据盘。
+
+生产环境应设置 `APP_ENV=production`。服务启动时会强制校验关键配置：真实 `APP_API_KEY`、真实 `ZHIPU_API_KEY`、HTTPS CORS 来源、非 `hash` embedding、启用本地模型文件、启用限流、启用请求日志、启用生成历史和持久化历史库路径。校验失败会直接拒绝启动。
 
 RAG 默认使用本地 `hash` embedding，便于无模型启动。需要切换到轻量中文语义模型时，可以配置：
 

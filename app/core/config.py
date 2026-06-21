@@ -12,6 +12,7 @@ DEFAULT_CORS_ALLOW_ORIGINS = (
     "http://127.0.0.1:5173,"
     "http://localhost:5173"
 )
+PRODUCTION_ENV_NAMES = {"prod", "production"}
 
 
 def _load_legacy_config() -> dict[str, str]:
@@ -82,6 +83,7 @@ def _get_csv(value: str | None, default: str) -> list[str]:
 @dataclass(frozen=True)
 class Settings:
     app_name: str = "AI Test Case Generator"
+    app_env: str = "development"
     app_api_key: str | None = None
     zhipu_api_key: str | None = None
     zhipu_base_url: str = "https://open.bigmodel.cn/api/paas/v4"
@@ -106,6 +108,10 @@ class Settings:
     )
     cors_allow_credentials: bool = False
 
+    @property
+    def is_production(self) -> bool:
+        return self.app_env.strip().lower() in PRODUCTION_ENV_NAMES
+
 
 @lru_cache
 def get_settings() -> Settings:
@@ -126,6 +132,15 @@ def get_settings() -> Settings:
         cors_allow_credentials = False
 
     return Settings(
+        app_env=(
+            _get_config_value(
+                legacy,
+                "APP_ENV",
+                aliases=("ENVIRONMENT",),
+                default="development",
+            )
+            or "development"
+        ).strip().lower(),
         app_api_key=_get_config_value(
             legacy,
             "APP_API_KEY",
@@ -222,3 +237,78 @@ def get_settings() -> Settings:
         cors_allow_origins=cors_allow_origins,
         cors_allow_credentials=cors_allow_credentials,
     )
+
+
+def validate_startup_settings(settings: Settings) -> None:
+    errors = validate_production_settings(settings)
+    if not errors:
+        return
+    details = "\n".join(f"- {error}" for error in errors)
+    raise RuntimeError(f"Invalid production configuration:\n{details}")
+
+
+def validate_production_settings(settings: Settings) -> list[str]:
+    if not settings.is_production:
+        return []
+
+    errors: list[str] = []
+    if _is_weak_secret(settings.app_api_key):
+        errors.append(
+            "APP_API_KEY must be configured with a non-placeholder value of at least 16 characters."
+        )
+    if _is_weak_secret(settings.zhipu_api_key):
+        errors.append(
+            "ZHIPU_API_KEY must be configured with a non-placeholder value of at least 16 characters."
+        )
+    if not settings.cors_allow_origins:
+        errors.append("CORS_ALLOW_ORIGINS must contain at least one production origin.")
+    if "*" in settings.cors_allow_origins:
+        errors.append("CORS_ALLOW_ORIGINS must not include '*' in production.")
+    local_origins = [
+        origin
+        for origin in settings.cors_allow_origins
+        if origin.startswith("http://localhost") or origin.startswith("http://127.0.0.1")
+    ]
+    if local_origins:
+        errors.append("CORS_ALLOW_ORIGINS must not use localhost origins in production.")
+    non_https_origins = [
+        origin
+        for origin in settings.cors_allow_origins
+        if origin != "*" and not origin.startswith("https://")
+    ]
+    if non_https_origins:
+        errors.append("CORS_ALLOW_ORIGINS must use https:// origins in production.")
+    provider = settings.embedding_provider.strip().lower().replace("-", "_")
+    if provider == "hash":
+        errors.append("EMBEDDING_PROVIDER must not be 'hash' in production.")
+    if provider not in {"hash", "sentence_transformers", "sentence_transformer"}:
+        errors.append("EMBEDDING_PROVIDER must be 'sentence_transformers' in production.")
+    if provider in {"sentence_transformers", "sentence_transformer"} and not settings.embedding_local_files_only:
+        errors.append(
+            "EMBEDDING_LOCAL_FILES_ONLY should be true in production; download models before deploy."
+        )
+    if not settings.rate_limit_enabled:
+        errors.append("RATE_LIMIT_ENABLED must be true in production.")
+    if not settings.request_log_enabled:
+        errors.append("REQUEST_LOG_ENABLED must be true in production.")
+    if not settings.generation_history_enabled:
+        errors.append("GENERATION_HISTORY_ENABLED must be true in production.")
+    if settings.generation_history_db_path.strip() in {"", ":memory:"}:
+        errors.append("GENERATION_HISTORY_DB_PATH must point to a persistent database file.")
+    return errors
+
+
+def _is_weak_secret(value: str | None) -> bool:
+    if not value or len(value.strip()) < 16:
+        return True
+    lowered = value.strip().lower()
+    placeholders = (
+        "replace-with",
+        "your-",
+        "changeme",
+        "dummy",
+        "example",
+        "test-service-key",
+        "test-zhipu-key",
+    )
+    return any(token in lowered for token in placeholders)
