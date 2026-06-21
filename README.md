@@ -9,6 +9,9 @@ Agent 架构与面试技术点见 [docs/agent-architecture.md](docs/agent-archit
 ## 功能
 
 - `POST /api/v1/test-cases/generate`：输入需求描述，返回结构化测试用例。
+- `POST /api/v1/test-cases/generation-jobs`：提交异步生成任务，适合长需求或批量调用。
+- `GET /api/v1/test-cases/generation-jobs`：查询异步生成任务列表。
+- `GET /api/v1/test-cases/generation-jobs/{job_id}`：查询异步生成任务详情和结果。
 - `POST /api/v1/test-cases/export`：将测试用例导出为 Excel。
 - `POST /api/v1/knowledge/ingest`：导入 PRD、历史用例等知识文本到 Chroma。
 - `POST /api/v1/knowledge/query`：验证知识库检索结果。
@@ -104,6 +107,9 @@ AGENT_QUERY_REWRITE_ENABLED
 AGENT_QUERY_REWRITE_MIN_CHUNKS
 AGENT_BUDGET_MAX_PROMPT_TOKENS
 AGENT_BUDGET_MAX_ESTIMATED_COST
+GENERATION_JOB_MAX_WORKERS
+GENERATION_JOB_MAX_QUEUE_SIZE
+GENERATION_JOB_RETENTION_SECONDS
 RATE_LIMIT_ENABLED
 RATE_LIMIT_REQUESTS
 RATE_LIMIT_WINDOW_SECONDS
@@ -263,6 +269,24 @@ curl -X POST "http://127.0.0.1:8000/api/v1/generation-gates/{record_id}/resolve"
 ```
 
 `decision` 只能是 `approved` 或 `rejected`。已处理的门控记录不会再次被覆盖，重复处理会返回 409。
+
+异步生成入口适合长需求和批量调用：
+
+```powershell
+curl -X POST http://127.0.0.1:8000/api/v1/test-cases/generation-jobs `
+  -H "Content-Type: application/json" `
+  -H "X-API-Key: your-service-api-key" `
+  -d "{\"description\":\"生成 JWT 登录测试用例\",\"max_cases\":8}"
+```
+
+提交成功返回 202 和 `job_id`，调用方再查询任务详情：
+
+```powershell
+curl -X GET "http://127.0.0.1:8000/api/v1/test-cases/generation-jobs/{job_id}" `
+  -H "X-API-Key: your-service-api-key"
+```
+
+任务状态包括 `queued`、`running`、`succeeded`、`failed`。当前实现是进程内队列，`GENERATION_JOB_MAX_WORKERS` 控制同时执行的生成任务数，`GENERATION_JOB_MAX_QUEUE_SIZE` 控制排队容量，队列满会返回 429。它能提升 HTTP 接单能力和长任务并发管理，但真实生成吞吐仍受 LLM 供应商限流、本机资源和 worker 数限制；多进程或多实例生产部署应替换为 Redis/Celery/RQ 这类外部队列。
 
 生成响应和历史记录还会返回 `usage`。当前 usage 是本地估算值，包含 prompt/output 字符数、估算 token 数和可选估算费用。默认不计算费用；如果配置 `LLM_PROMPT_PRICE_PER_1K_TOKENS` 与 `LLM_COMPLETION_PRICE_PER_1K_TOKENS`，服务会按每千 token 单价计算 `estimated_cost`。
 

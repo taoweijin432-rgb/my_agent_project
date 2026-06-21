@@ -93,6 +93,18 @@ def test_settings_reads_agent_budget_gate_configuration(monkeypatch) -> None:
     assert settings.agent_budget_max_estimated_cost == 0.25
 
 
+def test_settings_reads_generation_job_queue_configuration(monkeypatch) -> None:
+    monkeypatch.setenv("GENERATION_JOB_MAX_WORKERS", "4")
+    monkeypatch.setenv("GENERATION_JOB_MAX_QUEUE_SIZE", "250")
+    monkeypatch.setenv("GENERATION_JOB_RETENTION_SECONDS", "7200")
+
+    settings = get_settings()
+
+    assert settings.generation_job_max_workers == 4
+    assert settings.generation_job_max_queue_size == 250
+    assert settings.generation_job_retention_seconds == 7200
+
+
 def test_settings_reads_agent_query_rewrite_configuration(monkeypatch) -> None:
     monkeypatch.setenv("AGENT_QUERY_REWRITE_ENABLED", "false")
     monkeypatch.setenv("AGENT_QUERY_REWRITE_MIN_CHUNKS", "2")

@@ -193,6 +193,35 @@ class GenerateResponse(BaseModel):
     retrieved_context: list[KnowledgeChunk] = Field(default_factory=list)
 
 
+class GenerationJobError(BaseModel):
+    code: str
+    message: str
+    status_code: int
+    gate: GenerationGateDetail | None = None
+
+
+class GenerationJobSummary(BaseModel):
+    id: str
+    status: Literal["queued", "running", "succeeded", "failed"]
+    created_at: str
+    updated_at: str
+    started_at: str | None = None
+    finished_at: str | None = None
+    record_id: str | None = None
+    error: GenerationJobError | None = None
+
+
+class GenerationJobDetail(GenerationJobSummary):
+    request: GenerateRequest
+    response: GenerateResponse | None = None
+
+
+class GenerationJobListResponse(BaseModel):
+    jobs: list[GenerationJobSummary]
+    limit: int
+    offset: int
+
+
 class GenerationRecordSummary(BaseModel):
     id: str
     created_at: str

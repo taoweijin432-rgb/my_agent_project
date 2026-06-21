@@ -337,6 +337,9 @@ Prompt 中只保留对生成有用的信息：
 - `GenerationHistoryStore.get_record`
 - `GenerationHistoryStore.list_gate_records`
 - `GenerationHistoryStore.resolve_gate_record`
+- `InMemoryGenerationJobQueue.submit`
+- `InMemoryGenerationJobQueue.get_job`
+- `InMemoryGenerationJobQueue.list_jobs`
 - `build_excel`
 - `score_generation_quality`
 
@@ -348,6 +351,8 @@ list_generation_records(status, limit)
 get_generation_record(record_id)
 list_generation_gates(status, limit)
 resolve_generation_gate(record_id, decision)
+submit_generation_job(request)
+get_generation_job(job_id)
 score_cases(cases)
 export_cases(cases)
 ```
@@ -444,6 +449,20 @@ Agent 不能只看“能不能生成”，要评估多个层面。
 
 可以用小模型做初稿，大模型做评审；也可以用本地规则做预处理和评分，减少大模型调用。
 
+### 9.6 如何提升 QPS 和处理长任务
+
+同步生成接口会让 HTTP 请求一直等待 RAG、LLM、校验、Reviewer 和历史落库完成。这个模式简单，但长需求或批量调用时容易占住连接，用户侧也更容易超时。
+
+当前新增了异步生成队列：
+
+- `POST /api/v1/test-cases/generation-jobs`：提交任务，快速返回 202。
+- `GET /api/v1/test-cases/generation-jobs/{job_id}`：查询状态和结果。
+- `GET /api/v1/test-cases/generation-jobs`：查看任务列表。
+
+设计边界是：API 层只负责接单，worker 后台复用原有生成链路，因此不会绕过 RAG、Reviewer、门控、usage 和历史记录。`GENERATION_JOB_MAX_WORKERS` 控制真实并发执行数，`GENERATION_JOB_MAX_QUEUE_SIZE` 控制排队容量，队列满时返回 429，避免无限堆积内存。
+
+这能提升的是“接单 QPS”和长任务承载能力，不代表真实生成吞吐无限提升。真实吞吐仍受模型供应商 QPS/TPM 限流、本机 CPU/内存、Chroma 检索耗时和 worker 数影响。当前实现是进程内队列，适合单机演示和受控部署；多进程或多实例生产环境要换成 Redis/Celery/RQ，让任务状态和 worker 池变成共享基础设施。
+
 ## 10. 面试可讲的项目亮点
 
 可以这样概括：
@@ -452,7 +471,7 @@ Agent 不能只看“能不能生成”，要评估多个层面。
 我做了一个面向测试用例生成的 RAG Agent 服务。
 它不是简单调 LLM，而是拆成需求分析、知识检索、测试策略规划、生成、结构化校验、质量评分、历史回放和成本统计的工作流。
 系统用 Chroma 管理长期知识，用 SQLite 管理情景记忆，用 Pydantic 做结构化约束，用 workflow trace 做可观测性。
-生产侧做了 API key、CORS、限流、启动配置校验、Docker Compose 和敏感数据隔离。
+生产侧做了 API key、CORS、限流、异步任务队列、启动配置校验、Docker Compose 和敏感数据隔离。
 ```
 
 如果面试官问“为什么不用一个 Prompt 直接生成”，可以回答：

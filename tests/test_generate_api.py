@@ -8,6 +8,7 @@ from app.models.test_case import (
     GenerateResponse,
     GenerationGateDetail,
     GenerationGateResolution,
+    GenerationJobDetail,
     GenerationRecordDetail,
     GenerationRecordSummary,
     GenerationMetadata,
@@ -15,6 +16,7 @@ from app.models.test_case import (
     TestCase as CaseModel,
     TestCaseType as CaseType,
 )
+from app.services.generation_jobs import GenerationJobQueueFullError
 from app.services.generator import GenerationBudgetExceededError, OutputValidationError
 from app.services.llm import LLMError, MissingApiKeyError
 
@@ -34,6 +36,13 @@ def fake_history_store(monkeypatch):
     store = FakeHistoryStore()
     monkeypatch.setattr(routes, "_history_store", lambda: store)
     return store
+
+
+@pytest.fixture(autouse=True)
+def fake_generation_job_queue(monkeypatch):
+    queue = FakeGenerationJobQueue()
+    monkeypatch.setattr(routes, "_generation_job_queue", lambda: queue)
+    return queue
 
 
 class FakeGenerator:
@@ -130,6 +139,37 @@ class FakeHistoryStore:
         return None
 
 
+class FakeGenerationJobQueue:
+    def __init__(self):
+        self.jobs = []
+        self.full = False
+
+    def submit(self, request):
+        if self.full:
+            raise GenerationJobQueueFullError("Generation job queue is full. Retry later.")
+        job = GenerationJobDetail(
+            id=f"job-{len(self.jobs) + 1}",
+            status="queued",
+            created_at="2026-06-22T00:00:00+00:00",
+            updated_at="2026-06-22T00:00:00+00:00",
+            request=request,
+        )
+        self.jobs.append(job)
+        return job
+
+    def get_job(self, job_id):
+        for job in self.jobs:
+            if job.id == job_id:
+                return job
+        return None
+
+    def list_jobs(self, *, limit=20, offset=0, status=None):
+        jobs = self.jobs
+        if status:
+            jobs = [job for job in jobs if job.status == status]
+        return jobs[offset : offset + limit]
+
+
 def _response() -> GenerateResponse:
     return GenerateResponse(
         cases=[
@@ -212,6 +252,38 @@ def test_generate_api_error_mapping(monkeypatch, fake_history_store, error, stat
     assert fake_history_store.failures[0][1] == str(error)
     if isinstance(error, GenerationBudgetExceededError):
         assert fake_history_store.failures[0][5]["code"] == "budget_exceeded"
+
+
+def test_generation_job_api(fake_generation_job_queue) -> None:
+    submitted = client.post(
+        "/api/v1/test-cases/generation-jobs",
+        json={"description": "生成 JWT 登录测试用例", "max_cases": 3},
+    )
+    listing = client.get("/api/v1/test-cases/generation-jobs?status=queued")
+    detail = client.get("/api/v1/test-cases/generation-jobs/job-1")
+    missing = client.get("/api/v1/test-cases/generation-jobs/missing")
+
+    assert submitted.status_code == 202
+    assert submitted.json()["id"] == "job-1"
+    assert submitted.json()["status"] == "queued"
+    assert submitted.json()["request"]["description"] == "生成 JWT 登录测试用例"
+    assert listing.status_code == 200
+    assert listing.json()["jobs"][0]["id"] == "job-1"
+    assert detail.status_code == 200
+    assert detail.json()["id"] == "job-1"
+    assert missing.status_code == 404
+
+
+def test_generation_job_api_returns_429_when_queue_is_full(fake_generation_job_queue) -> None:
+    fake_generation_job_queue.full = True
+
+    response = client.post(
+        "/api/v1/test-cases/generation-jobs",
+        json={"description": "生成 JWT 登录测试用例", "max_cases": 3},
+    )
+
+    assert response.status_code == 429
+    assert response.json()["detail"] == "Generation job queue is full. Retry later."
 
 
 def test_generation_record_list_and_detail(fake_history_store) -> None:

@@ -131,6 +131,25 @@ POST /api/v1/test-cases/generate
 }
 ```
 
+### 5.2.1 异步生成测试用例
+
+```http
+POST /api/v1/test-cases/generation-jobs
+GET /api/v1/test-cases/generation-jobs
+GET /api/v1/test-cases/generation-jobs/{job_id}
+```
+
+异步入口适合长需求文档、批量生成或前端不希望长时间等待 HTTP 响应的场景。提交接口返回 202 和任务详情，任务初始状态通常是 `queued`；后台 worker 会复用同步生成链路，继续执行 RAG、LLM 调用、Reviewer、门控和历史落库。
+
+任务状态包括：
+
+- `queued`：已接单，等待 worker。
+- `running`：正在生成。
+- `succeeded`：生成完成，详情里包含 `response`。
+- `failed`：生成失败，详情里包含 `error`；如果是预算或质量门控失败，`error.gate` 会包含 human-in-the-loop 结构化信息。
+
+队列配置由 `GENERATION_JOB_MAX_WORKERS`、`GENERATION_JOB_MAX_QUEUE_SIZE` 和 `GENERATION_JOB_RETENTION_SECONDS` 控制。当前队列是单进程内存实现，可以提升接口接单能力和长任务并发管理；多实例部署时需要替换为 Redis/Celery/RQ 等外部队列，否则不同进程之间不会共享任务状态。
+
 ### 5.3 导出 Excel
 
 ```http
@@ -355,6 +374,9 @@ AGENT_QUERY_REWRITE_ENABLED
 AGENT_QUERY_REWRITE_MIN_CHUNKS
 AGENT_BUDGET_MAX_PROMPT_TOKENS
 AGENT_BUDGET_MAX_ESTIMATED_COST
+GENERATION_JOB_MAX_WORKERS
+GENERATION_JOB_MAX_QUEUE_SIZE
+GENERATION_JOB_RETENTION_SECONDS
 RATE_LIMIT_ENABLED
 RATE_LIMIT_REQUESTS
 RATE_LIMIT_WINDOW_SECONDS
@@ -367,7 +389,7 @@ CORS_ALLOW_CREDENTIALS
 
 项目也兼容读取当前已有的 `.env/config.py`。
 
-注意：`.env/config.py` 里如果有真实 API Key 或服务调用密钥，不要提交到版本库。除 `/health` 外，业务接口需要在请求头携带 `X-API-Key`。服务会为响应增加 `X-Request-ID` 和 `X-Process-Time-ms`，并默认对 `/api/v1/*` 做内存级限流。生成接口还会默认把生成请求、响应、失败原因和耗时写入 `GENERATION_HISTORY_DB_PATH` 指向的 SQLite 数据库。Reviewer 默认开启并写入 `metadata.review`；自动重试默认关闭，避免隐式增加 LLM 成本。
+注意：`.env/config.py` 里如果有真实 API Key 或服务调用密钥，不要提交到版本库。除 `/health` 外，业务接口需要在请求头携带 `X-API-Key`。服务会为响应增加 `X-Request-ID` 和 `X-Process-Time-ms`，并默认对 `/api/v1/*` 做内存级限流。生成接口还会默认把生成请求、响应、失败原因和耗时写入 `GENERATION_HISTORY_DB_PATH` 指向的 SQLite 数据库。异步生成队列默认使用进程内 worker，适合单机部署；多实例部署时应替换为外部队列。Reviewer 默认开启并写入 `metadata.review`；自动重试默认关闭，避免隐式增加 LLM 成本。
 
 生产环境应设置 `APP_ENV=production`。此时应用会在启动时强制校验关键配置，包括真实服务密钥、真实模型密钥、HTTPS CORS 来源、语义 embedding、限流、请求日志、Agent Reviewer 和持久化历史库路径；校验失败会拒绝启动。
 
@@ -444,10 +466,10 @@ POST /api/v1/knowledge/ingest
 - 替换更强的 embedding 模型，提高 RAG 召回质量。
 - 增加文件上传接口，支持上传 PRD、Word、PDF。
 - 增加测试管理平台 adapter，例如禅道、TestRail、飞书多维表格。
-- 增加异步任务，适合长需求文档批量生成。
-- 增加用例质量评分，例如覆盖率、重复率、风险等级。
+- 将进程内异步队列替换为 Redis/Celery/RQ，支持多实例共享任务状态。
+- 增强用例质量评分，例如覆盖率、风险等级和人工验收结果回流。
 - 增加用户可配置的测试策略模板。
-- 增加接口鉴权，避免服务被未授权调用。
+- 增加用户体系和项目级权限隔离。
 
 ## 15. 常见问题
 

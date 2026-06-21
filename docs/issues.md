@@ -305,9 +305,20 @@
 - 修复：新增 `GenerationGateResolution` 和 `GenerationGateResolveRequest`；SQLite 历史表新增 `gate_status`、`gate_resolved_at`、`gate_resolved_by`、`gate_resolution_comment`，旧 gate 记录自动补为 `pending`；`GET /api/v1/generation-gates` 支持 `status=pending|approved|rejected|all`；新增 `POST /api/v1/generation-gates/{record_id}/resolve` 将门控记录标记为 `approved` 或 `rejected`，重复处理返回 409。
 - 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `87 passed, 3 warnings`。
 
+### ISSUE-027 同步生成接口阻塞时间长，缺少异步任务队列和背压能力
+
+- 严重级别：`medium`
+- 状态：`done`
+- 位置：`app/services/generation_jobs.py`、`app/api/routes.py`、`app/core/config.py`、`app/models/test_case.py`
+- 影响：此前生成接口只能同步等待 RAG、LLM、Reviewer、门控和历史落库完成。长需求或批量调用时，HTTP 连接会长时间占用，前端容易超时，也缺少队列满时的明确背压信号。
+- 建议：保留同步接口，同时增加异步提交、任务查询和任务列表接口；worker 后台复用原有生成链路，避免绕过质量门控和历史记录；用最大 worker 数控制真实并发，用最大队列长度防止内存无限堆积。
+- 修复：新增进程内 `InMemoryGenerationJobQueue`；新增 `GenerationJobDetail`、`GenerationJobSummary`、`GenerationJobError` 和 `GenerationJobListResponse`；新增 `POST /api/v1/test-cases/generation-jobs`、`GET /api/v1/test-cases/generation-jobs`、`GET /api/v1/test-cases/generation-jobs/{job_id}`；新增 `GENERATION_JOB_MAX_WORKERS`、`GENERATION_JOB_MAX_QUEUE_SIZE`、`GENERATION_JOB_RETENTION_SECONDS` 配置；队列满时返回 429。
+- 剩余风险：当前队列是单进程内存实现，适合单机和受控环境；多进程或多实例生产部署需要替换为 Redis/Celery/RQ 等外部队列，否则任务状态不会跨进程共享。
+- 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `93 passed, 3 warnings`。
+
 ## 本次检查记录
 
 - 已读：`README.md`、`docs/project-guide.md`、`requirements.txt`、核心 `app/` 模块、`scripts/`、`tests/`。
 - 已运行：`.\.venv\Scripts\python.exe -m pytest -q`
-- 结果：`87 passed, 3 warnings`
+- 结果：`93 passed, 3 warnings`
 - 限制：已完成健康检查和一次真实生成烟测；当前目录已初始化 Git，并已创建首次提交。
