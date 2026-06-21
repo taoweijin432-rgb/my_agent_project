@@ -36,6 +36,7 @@
 | ISSUE-021 | medium | done | 生成后缺少 Reviewer Agent 和条件修复路径，低质量结果只能事后发现 |
 | ISSUE-022 | medium | done | RAG 初次召回不足时缺少 query rewrite 条件边，容易直接带空上下文生成 |
 | ISSUE-023 | medium | done | Agent 缺少成本和质量门控，无法在高成本或低质量场景停止自动流程 |
+| ISSUE-024 | medium | done | 门控失败响应缺少结构化 human-in-the-loop 信息，调用方难以接审批流 |
 
 ## 问题详情
 
@@ -271,6 +272,16 @@
 - 影响：此前生成链路可以估算 usage、做 Reviewer 审查，但默认仍会继续执行或返回结果。对于超长 Prompt、高估算费用或 Reviewer 未通过的结果，系统缺少明确的“停止自动流程，交给人工确认”的边界。
 - 建议：在 LLM 调用前增加预算门控；在 Reviewer 后增加可选强质量门控。门控失败应返回明确错误码，记录失败历史和 usage，不应伪装为成功响应。
 - 修复：新增 `check_budget` 节点、`GenerationGateError`、`GenerationBudgetExceededError`、`GenerationQualityGateError`；API 将门控失败映射为 409；新增 `AGENT_BUDGET_MAX_PROMPT_TOKENS`、`AGENT_BUDGET_MAX_ESTIMATED_COST`、`AGENT_REVIEW_REQUIRE_PASS` 配置。默认阈值关闭，不改变现有行为。
+- 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `87 passed, 3 warnings`。
+
+### ISSUE-024 门控失败响应缺少结构化 human-in-the-loop 信息，调用方难以接审批流
+
+- 严重级别：`medium`
+- 状态：`done`
+- 位置：`app/services/generator.py`、`app/api/routes.py`
+- 影响：上一阶段门控失败虽然会返回 409，但 `detail` 只是字符串。前端或测试平台难以稳定判断是预算门控还是质量门控，也无法直接拿到 usage、review 和需要执行的人类动作。
+- 建议：让门控错误携带结构化 detail，包括 code、gate、message、action_required、usage 和 review。API 保留 409 状态码，但返回机器可读 JSON。
+- 修复：`GenerationGateError` 新增 `code`、`gate`、`action_required`、`usage`、`review` 和 `to_detail()`；预算门控返回 `budget_exceeded`/`human_confirmation`；质量门控返回 `quality_gate_failed`/`human_review`；API 409 的 `detail` 改为结构化 JSON。
 - 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `87 passed, 3 warnings`。
 
 ## 本次检查记录

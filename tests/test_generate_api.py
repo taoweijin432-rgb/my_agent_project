@@ -9,6 +9,7 @@ from app.models.test_case import (
     GenerationRecordDetail,
     GenerationRecordSummary,
     GenerationMetadata,
+    GenerationUsage,
     TestCase as CaseModel,
     TestCaseType as CaseType,
 )
@@ -127,7 +128,13 @@ def test_generate_api_success(monkeypatch, fake_history_store) -> None:
     [
         (MissingApiKeyError("missing key"), 503),
         (LLMError("upstream failed"), 502),
-        (GenerationBudgetExceededError("budget exceeded"), 409),
+        (
+            GenerationBudgetExceededError(
+                "budget exceeded",
+                usage=GenerationUsage(prompt_tokens_estimate=10),
+            ),
+            409,
+        ),
         (OutputValidationError("invalid output"), 502),
     ],
 )
@@ -140,7 +147,15 @@ def test_generate_api_error_mapping(monkeypatch, fake_history_store, error, stat
     )
 
     assert response.status_code == status_code
-    assert response.json()["detail"] == str(error)
+    detail = response.json()["detail"]
+    if isinstance(error, GenerationBudgetExceededError):
+        assert detail["code"] == "budget_exceeded"
+        assert detail["gate"] == "budget"
+        assert detail["message"] == str(error)
+        assert detail["action_required"] == "human_confirmation"
+        assert detail["usage"]["prompt_tokens_estimate"] == 10
+    else:
+        assert detail == str(error)
     assert len(fake_history_store.failures) == 1
     assert fake_history_store.failures[0][1] == str(error)
 

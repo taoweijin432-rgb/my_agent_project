@@ -247,6 +247,21 @@ Reviewer 默认只记录审查结论，不增加 LLM 调用。显式开启 `AGEN
 
 预算门控默认不阻断。设置 `AGENT_BUDGET_MAX_PROMPT_TOKENS` 或 `AGENT_BUDGET_MAX_ESTIMATED_COST` 后，超限请求会在调用 LLM 前返回 409，并把估算 usage 写入失败历史。质量门控默认不阻断；设置 `AGENT_REVIEW_REQUIRE_PASS=true` 后，Reviewer 未通过的结果会返回 409，交给人工确认或调整需求后重试。
 
+门控失败时，API 返回结构化 `detail`，字段包括：
+
+```json
+{
+  "code": "budget_exceeded",
+  "gate": "budget",
+  "message": "Generation requires human confirmation: ...",
+  "action_required": "human_confirmation",
+  "usage": {},
+  "review": null
+}
+```
+
+质量门控失败时 `code=quality_gate_failed`、`gate=quality`，并会在 `review` 中返回 Reviewer 审查结论。调用方可以据此进入人工确认、人工复核或调整输入后重试。
+
 生成记录落库后，历史详情会基于请求和响应计算一份本地质量报告。评分维度包括用例数量、标题重复率、目标类型覆盖、步骤/预期完整度和知识库 grounding。该评分用于回放和筛选，不会调用大模型，也不替代人工验收。
 
 生成 metadata 和历史记录还包含 `usage`。当前 usage 通过字符数启发式估算 token，用于成本趋势和滥用排查；如果配置每千 token 单价，会额外返回估算费用。该值不等同于模型供应商账单。

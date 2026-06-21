@@ -106,7 +106,7 @@ def generate_test_cases(request: GenerateRequest, http_request: Request) -> Gene
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except GenerationGateError as exc:
         _record_generation_failure(request, exc, start=start, request_id=request_id)
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail=exc.to_detail()) from exc
     except OutputValidationError as exc:
         _record_generation_failure(request, exc, start=start, request_id=request_id)
         raise HTTPException(status_code=502, detail=str(exc)) from exc

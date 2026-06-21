@@ -291,6 +291,11 @@ def test_generate_blocks_low_quality_result_when_quality_gate_is_required() -> N
     assert error.value.usage.completion_characters > 0
     assert error.value.review.passed is False
     assert "missing_target_types" in error.value.review.warnings
+    detail = error.value.to_detail()
+    assert detail["code"] == "quality_gate_failed"
+    assert detail["gate"] == "quality"
+    assert detail["action_required"] == "human_review"
+    assert detail["review"]["passed"] is False
 
 
 def test_generate_truncates_to_max_cases() -> None:

@@ -247,6 +247,8 @@ curl -X GET "http://127.0.0.1:8000/api/v1/generation-records?limit=20&offset=0" 
 
 生成链路还内置门控节点。`check_budget` 会在调用 LLM 前估算 prompt token 和费用；默认 `AGENT_BUDGET_MAX_PROMPT_TOKENS=0`、`AGENT_BUDGET_MAX_ESTIMATED_COST=0` 表示不阻断。显式设置阈值后，超限请求会返回 409 并写入失败历史。`AGENT_REVIEW_REQUIRE_PASS=true` 时，Reviewer 未通过的结果不会直接返回，需要人工确认或调整输入。
 
+门控失败的 409 响应是结构化的 human-in-the-loop 信号，`detail` 包含 `code`、`gate`、`message`、`action_required`、`usage` 和可选 `review`。调用方可以据此展示审批、人工复核或降低成本后重试。
+
 生成响应和历史记录还会返回 `usage`。当前 usage 是本地估算值，包含 prompt/output 字符数、估算 token 数和可选估算费用。默认不计算费用；如果配置 `LLM_PROMPT_PRICE_PER_1K_TOKENS` 与 `LLM_COMPLETION_PRICE_PER_1K_TOKENS`，服务会按每千 token 单价计算 `estimated_cost`。
 
 ## 集成方式

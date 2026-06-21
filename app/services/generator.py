@@ -7,6 +7,8 @@ from app.models.test_case import (
     GenerateRequest,
     GenerateResponse,
     GenerationMetadata,
+    GenerationReview,
+    GenerationUsage,
     TestCase,
     TestCaseCollection,
 )
@@ -40,21 +42,65 @@ class OutputValidationError(RuntimeError):
 class GenerationGateError(RuntimeError):
     """Raised when a workflow gate requires human intervention."""
 
-    def __init__(self, message: str, *, usage=None):
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str,
+        gate: str,
+        action_required: str,
+        usage: GenerationUsage | None = None,
+        review: GenerationReview | None = None,
+    ):
         super().__init__(message)
+        self.code = code
+        self.gate = gate
+        self.action_required = action_required
         self.usage = usage
+        self.review = review
+
+    def to_detail(self) -> dict[str, Any]:
+        return {
+            "code": self.code,
+            "gate": self.gate,
+            "message": str(self),
+            "action_required": self.action_required,
+            "usage": self.usage.model_dump(mode="json") if self.usage else None,
+            "review": self.review.model_dump(mode="json") if self.review else None,
+        }
 
 
 class GenerationBudgetExceededError(GenerationGateError):
     """Raised before LLM invocation when the prompt exceeds configured limits."""
 
+    def __init__(self, message: str, *, usage: GenerationUsage | None = None):
+        super().__init__(
+            message,
+            code="budget_exceeded",
+            gate="budget",
+            action_required="human_confirmation",
+            usage=usage,
+        )
+
 
 class GenerationQualityGateError(GenerationGateError):
     """Raised when Reviewer output is below a required quality threshold."""
 
-    def __init__(self, message: str, *, usage=None, review=None):
-        super().__init__(message, usage=usage)
-        self.review = review
+    def __init__(
+        self,
+        message: str,
+        *,
+        usage: GenerationUsage | None = None,
+        review: GenerationReview | None = None,
+    ):
+        super().__init__(
+            message,
+            code="quality_gate_failed",
+            gate="quality",
+            action_required="human_review",
+            usage=usage,
+            review=review,
+        )
 
 
 class TestCaseGenerator:
