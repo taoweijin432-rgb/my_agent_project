@@ -134,6 +134,31 @@ class GenerationGateDetail(BaseModel):
     review: GenerationReview | None = None
 
 
+class GenerationGateResolution(BaseModel):
+    status: Literal["pending", "approved", "rejected"] = "pending"
+    resolved_at: str | None = None
+    resolved_by: str | None = None
+    comment: str | None = None
+
+
+class GenerationGateResolveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["approved", "rejected"]
+    resolved_by: str | None = Field(default=None, max_length=100)
+    comment: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("resolved_by", "comment", mode="before")
+    @classmethod
+    def normalize_optional_text(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("value must be a string")
+        value = value.strip()
+        return value or None
+
+
 class WorkflowStep(BaseModel):
     name: str
     status: Literal["success", "failed", "skipped"]
@@ -183,6 +208,7 @@ class GenerationRecordSummary(BaseModel):
     error: str | None = None
     usage: GenerationUsage = Field(default_factory=GenerationUsage)
     gate: GenerationGateDetail | None = None
+    gate_resolution: GenerationGateResolution | None = None
 
 
 class GenerationQualityReport(BaseModel):

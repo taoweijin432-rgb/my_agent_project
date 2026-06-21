@@ -188,13 +188,29 @@ DELETE /api/v1/knowledge/documents?source=knowledge/prd/login.md
 
 文档管理接口用于查看当前索引里的文档清单、按 `source` 更新单个文档、按 `source` 删除文档。upsert 会替换同 `source` 的旧 chunk，并把当前文档版本号加 1。
 
-### 5.7 查询待处理门控记录
+### 5.7 查询和处理门控记录
 
 ```http
-GET /api/v1/generation-gates
+GET /api/v1/generation-gates?status=pending
+GET /api/v1/generation-gates?status=approved
+GET /api/v1/generation-gates?status=rejected
+GET /api/v1/generation-gates?status=all
+POST /api/v1/generation-gates/{record_id}/resolve
 ```
 
-该接口只返回预算门控或质量门控触发的失败记录。调用方可以用它构建人工确认、人工复核或审批列表。
+门控列表只返回预算门控或质量门控触发的失败记录。默认 `status=pending`，适合构建待人工确认、人工复核或审批列表；`status=all` 可用于审计。
+
+处理门控记录时，请求体示例：
+
+```json
+{
+  "decision": "approved",
+  "resolved_by": "qa-owner",
+  "comment": "允许继续处理"
+}
+```
+
+`decision` 只能是 `approved` 或 `rejected`。已经处理过的门控记录不会再次覆盖，重复处理会返回 409。
 
 ## 6. 测试用例数据结构
 

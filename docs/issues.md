@@ -295,6 +295,16 @@
 - 修复：新增 `GenerationGateDetail`；SQLite 历史表新增 `gate_detail_json`；失败记录支持写入 gate detail；历史摘要和详情返回 `gate` 字段；新增 `GET /api/v1/generation-gates` 查询预算/质量门控触发的待处理记录。
 - 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `87 passed, 3 warnings`。
 
+### ISSUE-026 门控事件缺少处理闭环，人工审批结果无法落库和审计
+
+- 严重级别：`medium`
+- 状态：`done`
+- 位置：`app/services/history.py`、`app/api/routes.py`、`app/models/test_case.py`
+- 影响：上一阶段已经可以查询门控事件，但事件仍停留在“待处理列表”层面。前端或外部测试平台即使完成了人工确认，也无法把 approved/rejected 结果写回服务端，后续审计、统计和待办清理都缺少可靠状态。
+- 建议：为门控事件增加处理状态和处理人信息；列表接口默认只返回待处理记录，同时支持按状态查看全部、已批准和已驳回记录；处理接口应避免重复覆盖已关闭事件。
+- 修复：新增 `GenerationGateResolution` 和 `GenerationGateResolveRequest`；SQLite 历史表新增 `gate_status`、`gate_resolved_at`、`gate_resolved_by`、`gate_resolution_comment`，旧 gate 记录自动补为 `pending`；`GET /api/v1/generation-gates` 支持 `status=pending|approved|rejected|all`；新增 `POST /api/v1/generation-gates/{record_id}/resolve` 将门控记录标记为 `approved` 或 `rejected`，重复处理返回 409。
+- 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `87 passed, 3 warnings`。
+
 ## 本次检查记录
 
 - 已读：`README.md`、`docs/project-guide.md`、`requirements.txt`、核心 `app/` 模块、`scripts/`、`tests/`。

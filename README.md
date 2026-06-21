@@ -18,6 +18,7 @@ Agent 架构与面试技术点见 [docs/agent-architecture.md](docs/agent-archit
 - `GET /api/v1/generation-records`：查询生成历史记录。
 - `GET /api/v1/generation-records/{record_id}`：查询单次生成详情。
 - `GET /api/v1/generation-gates`：查询预算或质量门控触发的待人工处理记录。
+- `POST /api/v1/generation-gates/{record_id}/resolve`：审批或驳回门控记录。
 
 测试用例字段固定为：
 
@@ -250,7 +251,18 @@ curl -X GET "http://127.0.0.1:8000/api/v1/generation-records?limit=20&offset=0" 
 
 门控失败的 409 响应是结构化的 human-in-the-loop 信号，`detail` 包含 `code`、`gate`、`message`、`action_required`、`usage` 和可选 `review`。调用方可以据此展示审批、人工复核或降低成本后重试。
 
-门控失败也会写入生成历史，并可通过 `GET /api/v1/generation-gates` 拉取待处理列表。
+门控失败也会写入生成历史，并可通过 `GET /api/v1/generation-gates` 拉取待处理列表。该接口默认返回 `pending` 状态；需要查看全部门控记录时使用 `?status=all`，查看已处理记录时使用 `?status=approved` 或 `?status=rejected`。
+
+处理门控记录：
+
+```powershell
+curl -X POST "http://127.0.0.1:8000/api/v1/generation-gates/{record_id}/resolve" `
+  -H "Content-Type: application/json" `
+  -H "X-API-Key: your-service-api-key" `
+  -d "{\"decision\":\"approved\",\"resolved_by\":\"qa-owner\",\"comment\":\"允许继续处理\"}"
+```
+
+`decision` 只能是 `approved` 或 `rejected`。已处理的门控记录不会再次被覆盖，重复处理会返回 409。
 
 生成响应和历史记录还会返回 `usage`。当前 usage 是本地估算值，包含 prompt/output 字符数、估算 token 数和可选估算费用。默认不计算费用；如果配置 `LLM_PROMPT_PRICE_PER_1K_TOKENS` 与 `LLM_COMPLETION_PRICE_PER_1K_TOKENS`，服务会按每千 token 单价计算 `estimated_cost`。
 

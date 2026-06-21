@@ -10,11 +10,16 @@ from app.models.test_case import (
     GenerateRequest,
     GenerateResponse,
     GenerationGateDetail,
+    GenerationGateResolution,
     GenerationRecordDetail,
     GenerationRecordSummary,
     GenerationUsage,
 )
 from app.services.quality import score_generation_quality
+
+
+class GenerationGateAlreadyResolvedError(RuntimeError):
+    pass
 
 
 class GenerationHistoryStore:
@@ -95,6 +100,7 @@ class GenerationHistoryStore:
         gate_detail_json = (
             _json_dumps(gate_detail.model_dump(mode="json")) if gate_detail else None
         )
+        gate_status = "pending" if gate_detail else None
         with self._lock:
             with self._connect() as connection:
                 connection.execute(
@@ -103,9 +109,9 @@ class GenerationHistoryStore:
                         id, created_at, request_id, status, description, request_json,
                         response_json, error, duration_ms, model, attempts,
                         retrieved_chunks, retrieved_sources_json, case_count, usage_json,
-                        gate_detail_json
+                        gate_detail_json, gate_status
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         record_id,
@@ -124,6 +130,7 @@ class GenerationHistoryStore:
                         0,
                         usage_json,
                         gate_detail_json,
+                        gate_status,
                     ),
                 )
                 connection.commit()
@@ -150,7 +157,8 @@ class GenerationHistoryStore:
                 f"""
                 SELECT id, created_at, request_id, status, description, duration_ms,
                        model, attempts, retrieved_chunks, retrieved_sources_json,
-                       case_count, error, usage_json, gate_detail_json
+                       case_count, error, usage_json, gate_detail_json, gate_status,
+                       gate_resolved_at, gate_resolved_by, gate_resolution_comment
                 FROM generation_records
                 {where}
                 ORDER BY created_at DESC
@@ -165,22 +173,30 @@ class GenerationHistoryStore:
         *,
         limit: int = 20,
         offset: int = 0,
+        gate_status: str | None = "pending",
     ) -> list[GenerationRecordSummary]:
         if not self.enabled:
             return []
 
+        params: list[object] = []
+        where = "WHERE gate_detail_json IS NOT NULL"
+        if gate_status:
+            where = f"{where} AND gate_status = ?"
+            params.append(gate_status)
+        params.extend([limit, offset])
         with self._connect() as connection:
             rows = connection.execute(
-                """
+                f"""
                 SELECT id, created_at, request_id, status, description, duration_ms,
                        model, attempts, retrieved_chunks, retrieved_sources_json,
-                       case_count, error, usage_json, gate_detail_json
+                       case_count, error, usage_json, gate_detail_json, gate_status,
+                       gate_resolved_at, gate_resolved_by, gate_resolution_comment
                 FROM generation_records
-                WHERE gate_detail_json IS NOT NULL
+                {where}
                 ORDER BY created_at DESC
                 LIMIT ? OFFSET ?
                 """,
-                (limit, offset),
+                params,
             ).fetchall()
         return [_summary_from_row(row) for row in rows]
 
@@ -194,7 +210,8 @@ class GenerationHistoryStore:
                 SELECT id, created_at, request_id, status, description, duration_ms,
                        model, attempts, retrieved_chunks, retrieved_sources_json,
                        case_count, error, request_json, response_json, usage_json,
-                       gate_detail_json
+                       gate_detail_json, gate_status, gate_resolved_at,
+                       gate_resolved_by, gate_resolution_comment
                 FROM generation_records
                 WHERE id = ?
                 """,
@@ -219,6 +236,54 @@ class GenerationHistoryStore:
             quality=quality,
         )
 
+    def resolve_gate_record(
+        self,
+        record_id: str,
+        *,
+        decision: str,
+        resolved_by: str | None = None,
+        comment: str | None = None,
+    ) -> GenerationRecordDetail | None:
+        if not self.enabled:
+            return None
+        if decision not in {"approved", "rejected"}:
+            raise ValueError("decision must be approved or rejected")
+
+        resolved_at = _utc_now()
+        with self._lock:
+            with self._connect() as connection:
+                row = connection.execute(
+                    """
+                    SELECT gate_detail_json, gate_status
+                    FROM generation_records
+                    WHERE id = ?
+                    """,
+                    (record_id,),
+                ).fetchone()
+                if row is None or row["gate_detail_json"] is None:
+                    return None
+
+                current_status = row["gate_status"] or "pending"
+                if current_status != "pending":
+                    raise GenerationGateAlreadyResolvedError(
+                        f"Generation gate record is already {current_status}."
+                    )
+
+                connection.execute(
+                    """
+                    UPDATE generation_records
+                    SET gate_status = ?,
+                        gate_resolved_at = ?,
+                        gate_resolved_by = ?,
+                        gate_resolution_comment = ?
+                    WHERE id = ?
+                    """,
+                    (decision, resolved_at, resolved_by, comment, record_id),
+                )
+                connection.commit()
+
+        return self.get_record(record_id)
+
     def _initialize(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._lock:
@@ -241,7 +306,11 @@ class GenerationHistoryStore:
                         retrieved_sources_json TEXT NOT NULL,
                         case_count INTEGER NOT NULL,
                         usage_json TEXT NOT NULL DEFAULT '{}',
-                        gate_detail_json TEXT
+                        gate_detail_json TEXT,
+                        gate_status TEXT,
+                        gate_resolved_at TEXT,
+                        gate_resolved_by TEXT,
+                        gate_resolution_comment TEXT
                     )
                     """
                 )
@@ -257,6 +326,38 @@ class GenerationHistoryStore:
                     column="gate_detail_json",
                     definition="TEXT",
                 )
+                _ensure_column(
+                    connection,
+                    table="generation_records",
+                    column="gate_status",
+                    definition="TEXT",
+                )
+                _ensure_column(
+                    connection,
+                    table="generation_records",
+                    column="gate_resolved_at",
+                    definition="TEXT",
+                )
+                _ensure_column(
+                    connection,
+                    table="generation_records",
+                    column="gate_resolved_by",
+                    definition="TEXT",
+                )
+                _ensure_column(
+                    connection,
+                    table="generation_records",
+                    column="gate_resolution_comment",
+                    definition="TEXT",
+                )
+                connection.execute(
+                    """
+                    UPDATE generation_records
+                    SET gate_status = 'pending'
+                    WHERE gate_detail_json IS NOT NULL
+                      AND gate_status IS NULL
+                    """
+                )
                 connection.execute(
                     """
                     CREATE INDEX IF NOT EXISTS idx_generation_records_created_at
@@ -267,6 +368,12 @@ class GenerationHistoryStore:
                     """
                     CREATE INDEX IF NOT EXISTS idx_generation_records_status
                     ON generation_records (status)
+                    """
+                )
+                connection.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_generation_records_gate_status
+                    ON generation_records (gate_status)
                     """
                 )
                 connection.commit()
@@ -327,6 +434,23 @@ def _gate_from_raw(raw: str | None) -> GenerationGateDetail | None:
         return None
 
 
+def _gate_resolution_from_row(row: sqlite3.Row) -> GenerationGateResolution | None:
+    if _row_value(row, "gate_detail_json") is None:
+        return None
+    return GenerationGateResolution(
+        status=_row_value(row, "gate_status") or "pending",
+        resolved_at=_row_value(row, "gate_resolved_at"),
+        resolved_by=_row_value(row, "gate_resolved_by"),
+        comment=_row_value(row, "gate_resolution_comment"),
+    )
+
+
+def _row_value(row: sqlite3.Row, key: str) -> object | None:
+    if key not in row.keys():
+        return None
+    return row[key]
+
+
 def _ensure_column(
     connection: sqlite3.Connection,
     *,
@@ -358,4 +482,5 @@ def _summary_from_row(row: sqlite3.Row) -> GenerationRecordSummary:
         error=row["error"],
         usage=_usage_from_raw(row["usage_json"]),
         gate=_gate_from_raw(row["gate_detail_json"]),
+        gate_resolution=_gate_resolution_from_row(row),
     )

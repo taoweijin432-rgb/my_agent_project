@@ -10,7 +10,10 @@ from app.models.test_case import (
     TestCase as CaseModel,
     TestCaseType as CaseType,
 )
-from app.services.history import GenerationHistoryStore
+from app.services.history import (
+    GenerationGateAlreadyResolvedError,
+    GenerationHistoryStore,
+)
 
 
 def _request() -> GenerateRequest:
@@ -122,6 +125,8 @@ def test_generation_history_records_failure_and_filters_by_status(tmp_path: Path
     assert failed_records[0].usage.prompt_tokens_estimate == 40
     assert failed_records[0].gate is not None
     assert failed_records[0].gate.code == "budget_exceeded"
+    assert failed_records[0].gate_resolution is not None
+    assert failed_records[0].gate_resolution.status == "pending"
     assert [record.id for record in gate_records] == [failed_id]
     assert detail is not None
     assert detail.status == "failed"
@@ -131,6 +136,36 @@ def test_generation_history_records_failure_and_filters_by_status(tmp_path: Path
     assert detail.error == "upstream failed"
     assert detail.gate is not None
     assert detail.gate.action_required == "human_confirmation"
+    assert detail.gate_resolution is not None
+    assert detail.gate_resolution.status == "pending"
+
+    resolved = store.resolve_gate_record(
+        failed_id or "",
+        decision="approved",
+        resolved_by="qa-owner",
+        comment="allowed for test import",
+    )
+
+    pending_gate_records = store.list_gate_records()
+    approved_gate_records = store.list_gate_records(gate_status="approved")
+    all_gate_records = store.list_gate_records(gate_status=None)
+
+    assert resolved is not None
+    assert resolved.gate_resolution is not None
+    assert resolved.gate_resolution.status == "approved"
+    assert resolved.gate_resolution.resolved_at is not None
+    assert resolved.gate_resolution.resolved_by == "qa-owner"
+    assert resolved.gate_resolution.comment == "allowed for test import"
+    assert pending_gate_records == []
+    assert [record.id for record in approved_gate_records] == [failed_id]
+    assert [record.id for record in all_gate_records] == [failed_id]
+
+    try:
+        store.resolve_gate_record(failed_id or "", decision="rejected")
+    except GenerationGateAlreadyResolvedError as exc:
+        assert "already approved" in str(exc)
+    else:
+        raise AssertionError("resolved gate records should not be resolved twice")
 
 
 def test_generation_history_returns_empty_when_disabled(tmp_path: Path) -> None:
@@ -145,5 +180,7 @@ def test_generation_history_returns_empty_when_disabled(tmp_path: Path) -> None:
 
     assert record_id is None
     assert store.list_records() == []
+    assert store.list_gate_records() == []
     assert store.get_record("missing") is None
+    assert store.resolve_gate_record("missing", decision="approved") is None
     assert not (tmp_path / "history.sqlite3").exists()

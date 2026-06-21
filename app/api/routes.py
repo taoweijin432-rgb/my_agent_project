@@ -14,6 +14,7 @@ from app.models.test_case import (
     ExportRequest,
     GenerateRequest,
     GenerateResponse,
+    GenerationGateResolveRequest,
     GenerationRecordDetail,
     GenerationRecordListResponse,
     KnowledgeDocumentDeleteResponse,
@@ -31,7 +32,10 @@ from app.services.generator import (
     OutputValidationError,
     TestCaseGenerator,
 )
-from app.services.history import GenerationHistoryStore
+from app.services.history import (
+    GenerationGateAlreadyResolvedError,
+    GenerationHistoryStore,
+)
 from app.services.llm import LLMClient, LLMError, MissingApiKeyError
 from app.services.rag import ChromaUnavailableError, RagService
 
@@ -213,9 +217,42 @@ def list_generation_records(
 def list_generation_gates(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    status_filter: Literal["pending", "approved", "rejected", "all"] = Query(
+        default="pending",
+        alias="status",
+    ),
 ) -> GenerationRecordListResponse:
-    records = _history_store().list_gate_records(limit=limit, offset=offset)
+    gate_status = None if status_filter == "all" else status_filter
+    records = _history_store().list_gate_records(
+        limit=limit,
+        offset=offset,
+        gate_status=gate_status,
+    )
     return GenerationRecordListResponse(records=records, limit=limit, offset=offset)
+
+
+@router.post(
+    "/generation-gates/{record_id}/resolve",
+    response_model=GenerationRecordDetail,
+    tags=["history"],
+)
+def resolve_generation_gate(
+    record_id: str,
+    request: GenerationGateResolveRequest,
+) -> GenerationRecordDetail:
+    try:
+        record = _history_store().resolve_gate_record(
+            record_id,
+            decision=request.decision,
+            resolved_by=request.resolved_by,
+            comment=request.comment,
+        )
+    except GenerationGateAlreadyResolvedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    if record is None:
+        raise HTTPException(status_code=404, detail="Generation gate record not found.")
+    return record
 
 
 @router.get(

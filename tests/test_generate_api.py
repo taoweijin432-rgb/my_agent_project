@@ -7,6 +7,7 @@ from app.main import app
 from app.models.test_case import (
     GenerateResponse,
     GenerationGateDetail,
+    GenerationGateResolution,
     GenerationRecordDetail,
     GenerationRecordSummary,
     GenerationMetadata,
@@ -87,9 +88,46 @@ class FakeHistoryStore:
                 )
         return None
 
-    def list_gate_records(self, *, limit=20, offset=0):
+    def list_gate_records(self, *, limit=20, offset=0, gate_status="pending"):
         records = [record for record in self.records if record.gate is not None]
+        if gate_status:
+            records = [
+                record
+                for record in records
+                if (record.gate_resolution.status if record.gate_resolution else "pending")
+                == gate_status
+            ]
         return records[offset : offset + limit]
+
+    def resolve_gate_record(
+        self,
+        record_id,
+        *,
+        decision,
+        resolved_by=None,
+        comment=None,
+    ):
+        for index, record in enumerate(self.records):
+            if record.id != record_id or record.gate is None:
+                continue
+            updated = GenerationRecordSummary(
+                **{
+                    **record.model_dump(),
+                    "gate_resolution": GenerationGateResolution(
+                        status=decision,
+                        resolved_at="2026-06-21T00:02:00+00:00",
+                        resolved_by=resolved_by,
+                        comment=comment,
+                    ),
+                }
+            )
+            self.records[index] = updated
+            return GenerationRecordDetail(
+                **updated.model_dump(),
+                request={"description": "鐢熸垚澶辫触鐢ㄤ緥"},
+                response=None,
+            )
+        return None
 
 
 def _response() -> GenerateResponse:
@@ -211,6 +249,22 @@ def test_generation_record_list_and_detail(fake_history_store) -> None:
 
     listing = client.get("/api/v1/generation-records?status=success")
     gates = client.get("/api/v1/generation-gates")
+    approved_before = client.get("/api/v1/generation-gates?status=approved")
+    resolved_gate = client.post(
+        "/api/v1/generation-gates/record-2/resolve",
+        json={
+            "decision": "approved",
+            "resolved_by": "qa-owner",
+            "comment": "allowed for import",
+        },
+    )
+    gates_after_resolve = client.get("/api/v1/generation-gates")
+    approved_after = client.get("/api/v1/generation-gates?status=approved")
+    all_gates = client.get("/api/v1/generation-gates?status=all")
+    missing_gate = client.post(
+        "/api/v1/generation-gates/missing/resolve",
+        json={"decision": "rejected"},
+    )
     detail = client.get("/api/v1/generation-records/record-1")
     missing = client.get("/api/v1/generation-records/missing")
 
@@ -220,6 +274,20 @@ def test_generation_record_list_and_detail(fake_history_store) -> None:
     assert gates.status_code == 200
     assert gates.json()["records"][0]["id"] == "record-2"
     assert gates.json()["records"][0]["gate"]["code"] == "quality_gate_failed"
+    assert gates.json()["records"][0]["gate_resolution"] is None
+    assert approved_before.status_code == 200
+    assert approved_before.json()["records"] == []
+    assert resolved_gate.status_code == 200
+    assert resolved_gate.json()["gate_resolution"]["status"] == "approved"
+    assert resolved_gate.json()["gate_resolution"]["resolved_by"] == "qa-owner"
+    assert resolved_gate.json()["gate_resolution"]["comment"] == "allowed for import"
+    assert gates_after_resolve.status_code == 200
+    assert gates_after_resolve.json()["records"] == []
+    assert approved_after.status_code == 200
+    assert approved_after.json()["records"][0]["id"] == "record-2"
+    assert all_gates.status_code == 200
+    assert all_gates.json()["records"][0]["id"] == "record-2"
+    assert missing_gate.status_code == 404
     assert detail.status_code == 200
     assert detail.json()["request"]["description"] == "生成 JWT 登录测试用例"
     assert detail.json()["response"]["cases"][0]["title"] == "JWT 登录成功"
