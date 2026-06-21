@@ -13,6 +13,7 @@ build/
 .env/
 .env.*
 !.env.example
+!.env.runtime.example
 .model_cache/
 
 data/chroma/

@@ -1,0 +1,25 @@
+services:
+  api:
+    build:
+      context: .
+    image: ai-testcase-generator:local
+    env_file:
+      - .env.runtime
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./.model_cache/huggingface:/app/.model_cache/huggingface
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3

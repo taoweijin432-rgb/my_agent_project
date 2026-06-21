@@ -29,6 +29,7 @@
 | ISSUE-014 | medium | done | 知识库缺少文档级更新、删除和当前版本管理能力 |
 | ISSUE-015 | medium | done | 生成历史缺少质量评分，难以筛选和回放低质量结果 |
 | ISSUE-016 | high | done | 生产环境缺少启动前配置校验，可能带不安全默认值上线 |
+| ISSUE-017 | medium | done | 缺少可直接复用的生产运行入口和容器健康检查 |
 
 ## 问题详情
 
@@ -196,9 +197,19 @@
 - 修复：新增 `APP_ENV` 和 `validate_startup_settings()`；生产环境会校验真实 `APP_API_KEY`、真实 `ZHIPU_API_KEY`、HTTPS CORS 来源、非 `hash` embedding、`EMBEDDING_LOCAL_FILES_ONLY=true`、启用限流、启用请求日志、启用生成历史和持久化历史库路径。
 - 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `63 passed, 3 warnings`。
 
+### ISSUE-017 缺少可直接复用的生产运行入口和容器健康检查
+
+- 严重级别：`medium`
+- 状态：`done`
+- 位置：`Dockerfile`、`docker-compose.yml`、`.env.runtime.example`、`docs/deployment.md`
+- 影响：此前只有 Dockerfile 和手动 `docker run` 示例，部署者仍需自己拼装生产环境变量、持久化挂载和健康检查。实际部署时容易漏掉 `data/` 持久化、模型缓存挂载或健康检查。
+- 建议：提供可提交的 runtime env 示例、Docker Compose 模板和容器健康检查；实际 `.env.runtime` 保持本地私有。
+- 修复：新增 `.env.runtime.example`、`docker-compose.yml`，Dockerfile 增加 `/health` 健康检查；Compose 挂载 `data/` 和 `.model_cache/huggingface`，并使用 `.env.runtime` 作为本机运行配置。
+- 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `66 passed, 3 warnings`。
+
 ## 本次检查记录
 
 - 已读：`README.md`、`docs/project-guide.md`、`requirements.txt`、核心 `app/` 模块、`scripts/`、`tests/`。
 - 已运行：`.\.venv\Scripts\python.exe -m pytest -q`
-- 结果：`63 passed, 3 warnings`
+- 结果：`66 passed, 3 warnings`
 - 限制：已完成健康检查和一次真实生成烟测；当前目录已初始化 Git，并已创建首次提交。

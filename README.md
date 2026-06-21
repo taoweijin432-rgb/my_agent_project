@@ -64,6 +64,13 @@ docker build -t ai-testcase-generator .
 docker run --rm -p 8000:8000 --env-file .env.runtime ai-testcase-generator
 ```
 
+也可以使用 Docker Compose。先基于 `.env.runtime.example` 准备本机 `.env.runtime`，替换真实密钥和域名后启动：
+
+```powershell
+docker compose up -d --build
+docker compose ps
+```
+
 ## 配置
 
 优先读取系统环境变量：

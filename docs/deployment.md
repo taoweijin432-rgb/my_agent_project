@@ -52,13 +52,28 @@ scripts\start_server.cmd
 
 ## 3. Docker 运行
 
-构建镜像：
+推荐使用 Docker Compose。先基于示例创建本机运行配置：
+
+```powershell
+Copy-Item .env.runtime.example .env.runtime
+```
+
+然后编辑 `.env.runtime`，替换真实服务密钥、模型密钥和前端 HTTPS 域名。启动服务：
+
+```powershell
+docker compose up -d --build
+docker compose ps
+```
+
+`docker-compose.yml` 会挂载 `./data:/app/data` 和 `./.model_cache/huggingface:/app/.model_cache/huggingface`，并通过 `/health` 做容器健康检查。
+
+也可以手动构建镜像：
 
 ```powershell
 docker build -t ai-testcase-generator .
 ```
 
-运行镜像：
+手动运行镜像：
 
 ```powershell
 docker run --rm -p 8000:8000 `
