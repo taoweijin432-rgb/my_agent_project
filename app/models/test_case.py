@@ -144,9 +144,26 @@ class GenerationRecordSummary(BaseModel):
     error: str | None = None
 
 
+class GenerationQualityReport(BaseModel):
+    score: int = Field(..., ge=0, le=100)
+    grade: Literal["excellent", "good", "fair", "poor"]
+    case_count: int
+    duplicate_title_count: int
+    duplicate_title_rate: float = Field(..., ge=0, le=1)
+    covered_types: list[TestCaseType] = Field(default_factory=list)
+    missing_target_types: list[TestCaseType] = Field(default_factory=list)
+    type_coverage_rate: float = Field(..., ge=0, le=1)
+    average_steps: float
+    average_expected: float
+    knowledge_grounded: bool
+    warnings: list[str] = Field(default_factory=list)
+    recommendations: list[str] = Field(default_factory=list)
+
+
 class GenerationRecordDetail(GenerationRecordSummary):
     request: GenerateRequest
     response: GenerateResponse | None = None
+    quality: GenerationQualityReport | None = None
 
 
 class GenerationRecordListResponse(BaseModel):

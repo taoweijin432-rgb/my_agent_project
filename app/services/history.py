@@ -12,6 +12,7 @@ from app.models.test_case import (
     GenerationRecordDetail,
     GenerationRecordSummary,
 )
+from app.services.quality import score_generation_quality
 
 
 class GenerationHistoryStore:
@@ -170,10 +171,13 @@ class GenerationHistoryStore:
             if response_json
             else None
         )
+        request = GenerateRequest.model_validate(json.loads(row["request_json"]))
+        quality = score_generation_quality(request, response) if response else None
         return GenerationRecordDetail(
             **summary.model_dump(),
-            request=GenerateRequest.model_validate(json.loads(row["request_json"])),
+            request=request,
             response=response,
+            quality=quality,
         )
 
     def _initialize(self) -> None:

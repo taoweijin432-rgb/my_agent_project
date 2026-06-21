@@ -67,6 +67,9 @@ def test_generation_history_records_success_and_detail(tmp_path: Path) -> None:
     assert detail.request.description == "生成 JWT 登录测试用例"
     assert detail.response is not None
     assert detail.response.cases[0].title == "JWT 登录成功"
+    assert detail.quality is not None
+    assert detail.quality.case_count == 1
+    assert detail.quality.knowledge_grounded is True
 
 
 def test_generation_history_records_failure_and_filters_by_status(tmp_path: Path) -> None:
@@ -90,6 +93,7 @@ def test_generation_history_records_failure_and_filters_by_status(tmp_path: Path
     assert detail is not None
     assert detail.status == "failed"
     assert detail.response is None
+    assert detail.quality is None
     assert detail.error == "upstream failed"
 
 

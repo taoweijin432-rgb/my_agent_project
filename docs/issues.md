@@ -27,6 +27,7 @@
 | ISSUE-012 | high | in_progress | 公网生产仍缺少限流、结构化日志、监控和 HTTPS 网关 |
 | ISSUE-013 | medium | done | 生成结果未落库，无法审计、回放和统计生成质量 |
 | ISSUE-014 | medium | done | 知识库缺少文档级更新、删除和当前版本管理能力 |
+| ISSUE-015 | medium | done | 生成历史缺少质量评分，难以筛选和回放低质量结果 |
 
 ## 问题详情
 
@@ -174,9 +175,19 @@
 - 修复：新增 `GET /api/v1/knowledge/documents`、`POST /api/v1/knowledge/documents/upsert`、`DELETE /api/v1/knowledge/documents?source=...`；RAG metadata 新增 `version`、`content_hash`、`updated_at`；upsert 会先删除同 source 旧 chunk，再写入新 chunk 并递增版本。
 - 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `53 passed, 3 warnings`。
 
+### ISSUE-015 生成历史缺少质量评分，难以筛选和回放低质量结果
+
+- 严重级别：`medium`
+- 状态：`done`
+- 位置：`app/services/quality.py`、`app/services/history.py`、`app/models/test_case.py`
+- 影响：已有生成历史可以保存输入和输出，但缺少可解释的质量摘要。后续做历史回放、人工审核、质量趋势统计时，需要人工逐条判断是否覆盖核心类型、是否重复、是否有知识库支撑。
+- 建议：先实现不调用大模型的确定性评分，覆盖用例数量、重复标题、目标类型覆盖、步骤/预期完整度和知识库 grounding；评分结果随历史详情返回。
+- 修复：新增 `GenerationQualityReport` 和本地评分服务；`GET /api/v1/generation-records/{record_id}` 对成功记录返回 `quality`，失败记录返回 `quality=null`。
+- 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `56 passed, 3 warnings`。
+
 ## 本次检查记录
 
 - 已读：`README.md`、`docs/project-guide.md`、`requirements.txt`、核心 `app/` 模块、`scripts/`、`tests/`。
 - 已运行：`.\.venv\Scripts\python.exe -m pytest -q`
-- 结果：`53 passed, 3 warnings`
+- 结果：`56 passed, 3 warnings`
 - 限制：已完成健康检查和一次真实生成烟测；当前目录已初始化 Git，并已创建首次提交。

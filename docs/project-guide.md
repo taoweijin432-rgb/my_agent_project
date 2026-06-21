@@ -228,6 +228,8 @@ DELETE /api/v1/knowledge/documents?source=knowledge/prd/login.md
 8. 如果校验失败，把错误信息放回 Prompt 自动重试。
 9. 校验成功后返回 `GenerateResponse`。
 
+生成记录落库后，历史详情会基于请求和响应计算一份本地质量报告。评分维度包括用例数量、标题重复率、目标类型覆盖、步骤/预期完整度和知识库 grounding。该评分用于回放和筛选，不会调用大模型，也不替代人工验收。
+
 ## 8. RAG 是怎么工作的
 
 RAG 相关代码在 `app/services/rag.py`。
