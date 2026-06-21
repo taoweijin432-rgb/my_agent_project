@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    env:
+      APP_API_KEY: test-service-key
+      ZHIPU_API_KEY: test-zhipu-key
+      EMBEDDING_PROVIDER: hash
+      CHROMA_PATH: data/chroma-ci
+      CHROMA_COLLECTION: ci_test_knowledge
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run tests
+        run: python -m pytest -q

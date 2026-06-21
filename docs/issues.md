@@ -1,0 +1,160 @@
+# 项目问题跟踪
+
+最后更新：2026-06-21
+
+## 维护规则
+
+- 状态使用：`open`、`in_progress`、`done`、`wontfix`。
+- 严重级别使用：`critical`、`high`、`medium`、`low`。
+- 新问题按编号递增；修复后保留条目并更新状态、修复版本或验证方式。
+- 每次改动相关模块后，至少运行 `.\.venv\Scripts\python.exe -m pytest -q`，并在条目中补充验证结果。
+
+## 当前概览
+
+| 编号 | 严重级别 | 状态 | 标题 |
+| --- | --- | --- | --- |
+| ISSUE-001 | high | done | API 缺少鉴权，知识导入和生成接口可被任意调用 |
+| ISSUE-002 | high | done | CORS 默认允许所有来源且启用凭据 |
+| ISSUE-003 | high | done | Excel 导出文件名未校验，可能造成响应头注入或下载异常 |
+| ISSUE-004 | medium | done | `_normalize_payload` 对顶层 list 的兼容逻辑不可达且会抛错 |
+| ISSUE-005 | medium | done | 用例 ID 自动补全逻辑被字段校验阻断 |
+| ISSUE-006 | medium | done | LLM 重试配置缺少下限校验，负数会导致无请求并返回无意义错误 |
+| ISSUE-007 | medium | done | RAG 使用 hash embedding，仅适合演示，生产召回质量不可控 |
+| ISSUE-008 | medium | done | LLM/RAG/API 主链路缺少集成测试和失败路径测试 |
+| ISSUE-009 | low | done | 启动脚本重定向标准输出，控制台启动时缺少即时反馈 |
+| ISSUE-010 | low | done | 工作区包含运行产物，需继续依赖忽略规则避免污染版本库 |
+| ISSUE-011 | medium | done | 缺少 Docker、CI 和部署说明，GitHub 交付基线不足 |
+| ISSUE-012 | high | in_progress | 公网生产仍缺少限流、结构化日志、监控和 HTTPS 网关 |
+
+## 问题详情
+
+### ISSUE-001 API 缺少鉴权，知识导入和生成接口可被任意调用
+
+- 严重级别：`high`
+- 状态：`done`
+- 位置：`app/api/routes.py:46`、`app/api/routes.py:58`、`app/api/routes.py:69`、`app/api/routes.py:76`
+- 影响：生成、导出、知识导入和知识查询接口没有认证依赖。服务一旦暴露到内网或公网，任何调用方都可以消耗 LLM 额度、写入知识库或读取检索片段。
+- 建议：增加 API key、JWT 或上游网关鉴权；至少对 `/knowledge/ingest` 和 `/test-cases/generate` 做服务端认证和调用频控。
+- 修复：`/api/v1/*` 业务接口已统一要求 `X-API-Key`；未配置 `APP_API_KEY` 时返回 503，缺失或错误密钥返回 401。`/health` 保持公开。
+- 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `13 passed, 1 warning`。
+
+### ISSUE-002 CORS 默认允许所有来源且启用凭据
+
+- 严重级别：`high`
+- 状态：`done`
+- 位置：`app/core/config.py:66`、`app/main.py:11`
+- 影响：`cors_allow_origins` 默认是 `["*"]`，应用同时设置 `allow_credentials=True`。这既不适合生产安全边界，也可能在浏览器凭据请求场景下产生不可预期的 CORS 行为。
+- 建议：从环境变量读取明确的允许来源列表；生产环境禁止 `*` 与凭据同时启用；为本地开发单独保留宽松配置。
+- 修复：新增 `CORS_ALLOW_ORIGINS` 和 `CORS_ALLOW_CREDENTIALS` 配置；默认只允许本地开发来源且凭据关闭；当来源包含 `*` 时会强制关闭凭据。
+- 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `13 passed, 1 warning`。
+
+### ISSUE-003 Excel 导出文件名未校验，可能造成响应头注入或下载异常
+
+- 严重级别：`high`
+- 状态：`done`
+- 位置：`app/models/test_case.py:130`、`app/api/routes.py:63`、`app/api/routes.py:67`、`app/api/routes.py:85`
+- 影响：`filename` 直接进入 `Content-Disposition` 响应头，没有过滤 CR/LF、引号、路径分隔符或超长值。恶意或异常文件名可能导致响应头注入、下载失败或客户端表现不一致。
+- 建议：在模型层限制文件名字符集和长度；服务端统一追加 `.xlsx`；响应头同时支持安全 ASCII `filename` 和 RFC 5987 `filename*`。
+- 修复：`ExportRequest.filename` 已校验非法字符、长度和后缀；导出响应头已改为安全 ASCII fallback 加 UTF-8 `filename*`。
+- 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `13 passed, 1 warning`。
+
+### ISSUE-004 `_normalize_payload` 对顶层 list 的兼容逻辑不可达且会抛错
+
+- 严重级别：`medium`
+- 状态：`done`
+- 位置：`app/services/generator.py:53`
+- 影响：函数看起来想兼容 LLM 直接返回 list，但实际先执行 `payload.get(alias)`，当 `payload` 是 list 时会抛出 `AttributeError: 'list' object has no attribute 'get'`，无法进入后面的 list 分支。
+- 复现：`.\.venv\Scripts\python.exe -c "from app.services.generator import _normalize_payload; _normalize_payload([{'id':'TC-001'}])"`
+- 建议：先判断 `isinstance(payload, list)`，再处理 dict 别名；同时补充单元测试覆盖顶层 list、`test_cases`、`items` 等变体。
+- 修复：`_normalize_payload()` 已先处理顶层 list，并对非 dict payload 返回 `{"cases": payload}`，避免 `.get()` 抛错。
+- 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `4 passed`。
+
+### ISSUE-005 用例 ID 自动补全逻辑被字段校验阻断
+
+- 严重级别：`medium`
+- 状态：`done`
+- 位置：`app/models/test_case.py:55`、`app/models/test_case.py:90`
+- 影响：`ensure_case_ids()` 试图为空 ID 补 `TC-001`，但 `id` 字段是必填且 `min_length=1`。当 LLM 返回 `null`、空字符串或漏掉 ID 时，字段校验会先失败，自动补全不会执行。
+- 复现：`id=None` 的用例会返回 `('cases', 0, 'id') string_too_short`。
+- 建议：如果 ID 允许后端补全，将 `id` 调整为可选并在 `model_validator(mode="before")` 或集合归一化阶段补齐；如果不允许补全，则删除当前无效的自动补全逻辑。
+- 修复：`TestCase.id` 已允许缺省或空字符串，由 `TestCaseCollection.ensure_case_ids()` 统一按顺序补齐。
+- 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `4 passed`。
+
+### ISSUE-006 LLM 重试配置缺少下限校验，负数会导致无请求并返回无意义错误
+
+- 严重级别：`medium`
+- 状态：`done`
+- 位置：`app/core/config.py:47`、`app/core/config.py:106`、`app/services/llm.py:39`
+- 影响：`LLM_MAX_RETRIES=-1` 可被接受，`LLMClient.generate_json()` 会跳过请求循环并报 `LLM request failed: None`，不利于排障。
+- 建议：对 `llm_max_retries` 设置 `ge=0`，对 `llm_timeout_seconds` 设置合理下限；非法配置应在启动时失败或回退并记录明确告警。
+- 修复：`LLM_MAX_RETRIES` 低于 0、`LLM_TIMEOUT_SECONDS` 低于 1 或无法解析时会回退到默认值。
+- 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `13 passed, 1 warning`。
+
+### ISSUE-007 RAG 使用 hash embedding，仅适合演示，生产召回质量不可控
+
+- 严重级别：`medium`
+- 状态：`done`
+- 位置：`app/services/rag.py:16`
+- 影响：当前 embedding 基于 token hash，无法理解语义相似性。知识库规模变大后，相关片段召回质量不可控，进而影响测试用例准确性。
+- 建议：抽象 embedding provider，支持智谱 embedding、bge、text2vec 或企业内部向量服务；保留 hash embedding 作为本地 demo fallback，并在配置中明确标识。
+- 修复：RAG 已支持 `EMBEDDING_PROVIDER=hash|sentence_transformers`，本地已切换到 `BAAI/bge-small-zh-v1.5`，模型缓存位于 `.model_cache/huggingface`，并使用新 collection `test_knowledge_bge_small_zh_v15` 避免维度冲突。
+- 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `18 passed, 2 warnings`；本地配置已完成一次 sentence-transformers 导入和检索烟测。
+
+### ISSUE-008 LLM/RAG/API 主链路缺少集成测试和失败路径测试
+
+- 严重级别：`medium`
+- 状态：`done`
+- 位置：`tests/test_generator.py`、`tests/test_generate_api.py`、`tests/test_rag.py`、`tests/test_rag_evaluation.py`、`tests/test_export.py`、`tests/test_auth.py`、`tests/test_config.py`
+- 影响：当前测试只覆盖模型归一化的一条路径。未覆盖 API 响应、Excel 导出、RAG chunk/search、LLM 错误映射、`_normalize_payload` 兼容逻辑、配置异常等关键行为。
+- 当前验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `37 passed, 2 warnings`。
+- 建议：增加 FastAPI TestClient 测试、RAG 使用临时目录测试、LLM mock 测试、Excel 内容测试和错误路径测试。
+- 修复：已补充模型、导出、鉴权、配置、RAG provider、导入脚本、RAG 评估、生成器 mock 链路和生成 API 错误映射测试。生成链路覆盖正常返回、别名 payload、顶层 list、校验失败重试、失败耗尽、LLM 异常、RAG 空结果、上下文返回、截断、去重和 ID 重排。
+- 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `37 passed, 2 warnings`。
+
+### ISSUE-009 启动脚本重定向标准输出，控制台启动时缺少即时反馈
+
+- 严重级别：`low`
+- 状态：`done`
+- 位置：`scripts/run_server.py:21`
+- 影响：脚本启动后 stdout/stderr 被写入日志文件，命令行用户看不到服务地址、启动失败原因或 uvicorn 实时输出，排障体验较差。
+- 建议：增加 `--log-to-file` 开关或同时输出到控制台和文件；`start_server.cmd` 使用后台启动时再默认写入日志。
+- 修复：`scripts/run_server.py` 默认保留控制台输出，并新增 `--log-to-file` 后台日志开关；`scripts/start_server.cmd` 使用后台日志模式。
+- 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `39 passed, 2 warnings`。
+
+### ISSUE-010 工作区包含运行产物，需继续依赖忽略规则避免污染版本库
+
+- 严重级别：`low`
+- 状态：`done`
+- 位置：`.gitignore:2`、`.gitignore:5`、`.gitignore:9`、`.gitignore:11`
+- 影响：当前工作区存在 `__pycache__/`、`.pytest_cache/`、`logs/`、`data/chroma/` 等运行产物。`.gitignore` 已覆盖这些路径，但本目录当前不是 Git 仓库，后续初始化或迁移仓库时仍需确认不会误提交。
+- 建议：保留现有忽略规则；初始化仓库或迁移代码前执行一次状态检查，确认缓存、日志和向量库数据未进入版本控制。
+- 修复：`.gitignore` 已补充覆盖 `.env.*`、coverage 产物、构建产物和 `knowledge_export/`；新增 `.dockerignore`，避免 Docker 构建上下文带入密钥、模型缓存、Chroma 数据、日志和私有知识导出。
+- 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `39 passed, 2 warnings`；已执行 `git init` 和 `git status --ignored --short`，确认 `.env/`、`.model_cache/`、`data/`、`logs/`、`knowledge_export/` 等运行或私有数据被忽略。
+
+### ISSUE-011 缺少 Docker、CI 和部署说明，GitHub 交付基线不足
+
+- 严重级别：`medium`
+- 状态：`done`
+- 位置：`Dockerfile`、`.dockerignore`、`.github/workflows/ci.yml`、`docs/deployment.md`、`README.md`
+- 影响：项目虽然可以本地运行，但缺少容器化入口、自动化测试工作流和部署说明，放入 GitHub 后接手者难以判断如何安装、验证和避免提交敏感数据。
+- 建议：补充最小 Dockerfile、GitHub Actions 测试工作流、部署说明和 README 入口；文档中明确真实 key、模型缓存、向量库和私有知识库不进入仓库。
+- 修复：已新增 Docker 构建文件、Docker 忽略规则、Windows CI 工作流和部署发布说明；README 已链接部署文档并补充 Docker 运行方式。
+- 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `39 passed, 2 warnings`。
+
+### ISSUE-012 公网生产仍缺少限流、结构化日志、监控和 HTTPS 网关
+
+- 严重级别：`high`
+- 状态：`in_progress`
+- 位置：`app/core/middleware.py`、`app/core/config.py`、`app/main.py`、部署入口
+- 影响：当前服务已经有基础 API key 鉴权，但如果直接暴露到公网，仍缺少调用频控、请求审计、结构化日志、错误监控、HTTPS 终止和上游网关策略。攻击者一旦拿到服务 key，仍可能快速消耗 LLM 额度或批量读取检索结果。
+- 建议：上线前接入反向代理或 API 网关，增加限流、访问日志、请求耗时日志、异常告警和 HTTPS；应用层可补充请求 ID、生成接口并发限制和敏感日志脱敏。
+- 部分修复：应用层已新增 `X-Request-ID`、`X-Process-Time-ms`、请求耗时日志和 `/api/v1/*` 内存级限流；配置项包括 `RATE_LIMIT_ENABLED`、`RATE_LIMIT_REQUESTS`、`RATE_LIMIT_WINDOW_SECONDS` 和 `REQUEST_LOG_ENABLED`。
+- 剩余风险：内存限流只适合单进程基础防护，不能替代多实例共享限流、WAF、HTTPS、集中日志和监控告警。
+- 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `44 passed, 2 warnings`。
+
+## 本次检查记录
+
+- 已读：`README.md`、`docs/project-guide.md`、`requirements.txt`、核心 `app/` 模块、`scripts/`、`tests/`。
+- 已运行：`.\.venv\Scripts\python.exe -m pytest -q`
+- 结果：`44 passed, 2 warnings`
+- 限制：已完成健康检查和一次真实生成烟测；当前目录已初始化 Git，并已创建首次提交。

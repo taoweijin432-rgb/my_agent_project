@@ -1,0 +1,112 @@
+[
+  {
+    "id": "auth-jwt-login-refresh",
+    "query": "管理员登录 JWT 刷新 token 角色能力 权限校验",
+    "expected_sources": [
+      "knowledge_export/api/auth_permissions.md",
+      "knowledge_export/permissions/rbac_auth.md"
+    ],
+    "expected_keywords": ["JWT", "refresh", "roles", "capabilities"]
+  },
+  {
+    "id": "backend-api-permission-matrix",
+    "query": "后台页面 API 权限矩阵 未登录 403 越权访问",
+    "expected_sources": [
+      "knowledge_export/permissions/backend_pages_and_api.md",
+      "knowledge_export/permissions/rbac_auth.md"
+    ],
+    "expected_keywords": ["403", "capabilities", "权限"]
+  },
+  {
+    "id": "questionnaire-risk-prediction",
+    "query": "内置匿名问卷 风险预测 分值规则 查询结果",
+    "expected_sources": [
+      "knowledge_export/api/questionnaire.md",
+      "knowledge_export/workflows/questionnaire_prediction.md",
+      "knowledge_export/prd/questionnaire_and_custom_surveys.md"
+    ],
+    "expected_keywords": ["RiskPrediction", "问卷", "预测"]
+  },
+  {
+    "id": "custom-questionnaire-training",
+    "query": "自定义问卷 发布 响应标注 训练准备度 训练数据下载",
+    "expected_sources": [
+      "knowledge_export/api/custom_questionnaire.md",
+      "knowledge_export/workflows/custom_questionnaire_training.md",
+      "knowledge_export/models/custom_questionnaire.md"
+    ],
+    "expected_keywords": ["CustomQuestionnaire", "训练", "标注"]
+  },
+  {
+    "id": "model-ops-release-rollback",
+    "query": "模型训练任务 发布模型 回滚 影子评估 SSE 流",
+    "expected_sources": [
+      "knowledge_export/api/model_center.md",
+      "knowledge_export/workflows/model_ops.md",
+      "knowledge_export/models/model_ops_and_agent.md"
+    ],
+    "expected_keywords": ["ModelOpsJob", "回滚", "SSE"]
+  },
+  {
+    "id": "analysis-alert-close-loop",
+    "query": "分析中心 预警列表 预警解释 处理闭环",
+    "expected_sources": [
+      "knowledge_export/api/analysis_alerts_dashboard.md",
+      "knowledge_export/workflows/alert_and_analysis.md",
+      "knowledge_export/models/core_business.md"
+    ],
+    "expected_keywords": ["AlertRecord", "预警", "解释"]
+  },
+  {
+    "id": "security-privacy-baseline",
+    "query": "生产安全配置 API Key CORS token 日志 脱敏 隐私保护",
+    "expected_sources": [
+      "knowledge/guidelines/security-baseline.md",
+      "knowledge_export/risks/security_privacy.md"
+    ],
+    "expected_keywords": ["token", "CORS", "敏感"]
+  },
+  {
+    "id": "agent-test-case-generation",
+    "query": "AI 测试用例生成 RAG 知识索引 导出 Excel 覆盖率",
+    "expected_sources": [
+      "knowledge_export/api/agent_test_case_generation.md",
+      "knowledge_export/workflows/agent_test_case_generation.md",
+      "knowledge_export/prd/model_and_agent.md"
+    ],
+    "expected_keywords": ["RAG", "Excel", "GeneratedTestCase"]
+  },
+  {
+    "id": "system-overview-scope",
+    "query": "系统总览 页面入口 模块划分 验收范围",
+    "expected_sources": [
+      "knowledge_export/prd/system_overview.md"
+    ],
+    "expected_keywords": ["页面", "模块", "验收"]
+  },
+  {
+    "id": "coverage-known-gaps",
+    "query": "历史测试覆盖 已知缺口 补充测试用例 风险缺口",
+    "expected_sources": [
+      "knowledge_export/risks/test_coverage_and_known_gaps.md",
+      "knowledge/guidelines/personal-project-test-standard.md"
+    ],
+    "expected_keywords": ["覆盖", "缺口", "测试用例"]
+  },
+  {
+    "id": "core-business-models",
+    "query": "核心业务数据模型 StudentProfile Questionnaire RiskPrediction AlertRecord 字段关系",
+    "expected_sources": [
+      "knowledge_export/models/core_business.md"
+    ],
+    "expected_keywords": ["StudentProfile", "Questionnaire", "RiskPrediction", "AlertRecord"]
+  },
+  {
+    "id": "acceptance-criteria-template",
+    "query": "个人项目 验收标准 Given When Then 模块验收模板",
+    "expected_sources": [
+      "knowledge/guidelines/acceptance-criteria-template.md"
+    ],
+    "expected_keywords": ["Given", "When", "Then"]
+  }
+]
