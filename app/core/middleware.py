@@ -46,6 +46,7 @@ def add_request_middleware(app: FastAPI, settings: Settings) -> None:
     @app.middleware("http")
     async def request_context(request: Request, call_next) -> Response:
         request_id = _request_id(request)
+        request.state.request_id = request_id
         start = time.perf_counter()
         status_code = 500
 

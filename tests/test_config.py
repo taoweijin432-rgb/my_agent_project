@@ -82,3 +82,13 @@ def test_settings_falls_back_for_invalid_rate_limit_values(monkeypatch) -> None:
 
     assert settings.rate_limit_requests == 60
     assert settings.rate_limit_window_seconds == 60
+
+
+def test_settings_reads_generation_history_configuration(monkeypatch) -> None:
+    monkeypatch.setenv("GENERATION_HISTORY_ENABLED", "false")
+    monkeypatch.setenv("GENERATION_HISTORY_DB_PATH", "data/history-test.sqlite3")
+
+    settings = get_settings()
+
+    assert settings.generation_history_enabled is False
+    assert settings.generation_history_db_path == "data/history-test.sqlite3"

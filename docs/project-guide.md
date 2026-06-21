@@ -270,13 +270,15 @@ RATE_LIMIT_ENABLED
 RATE_LIMIT_REQUESTS
 RATE_LIMIT_WINDOW_SECONDS
 REQUEST_LOG_ENABLED
+GENERATION_HISTORY_ENABLED
+GENERATION_HISTORY_DB_PATH
 CORS_ALLOW_ORIGINS
 CORS_ALLOW_CREDENTIALS
 ```
 
 项目也兼容读取当前已有的 `.env/config.py`。
 
-注意：`.env/config.py` 里如果有真实 API Key 或服务调用密钥，不要提交到版本库。除 `/health` 外，业务接口需要在请求头携带 `X-API-Key`。服务会为响应增加 `X-Request-ID` 和 `X-Process-Time-ms`，并默认对 `/api/v1/*` 做内存级限流。
+注意：`.env/config.py` 里如果有真实 API Key 或服务调用密钥，不要提交到版本库。除 `/health` 外，业务接口需要在请求头携带 `X-API-Key`。服务会为响应增加 `X-Request-ID` 和 `X-Process-Time-ms`，并默认对 `/api/v1/*` 做内存级限流。生成接口还会默认把生成请求、响应、失败原因和耗时写入 `GENERATION_HISTORY_DB_PATH` 指向的 SQLite 数据库。
 
 ## 11. 如何启动
 

@@ -11,6 +11,8 @@
 - `POST /api/v1/test-cases/export`：将测试用例导出为 Excel。
 - `POST /api/v1/knowledge/ingest`：导入 PRD、历史用例等知识文本到 Chroma。
 - `POST /api/v1/knowledge/query`：验证知识库检索结果。
+- `GET /api/v1/generation-records`：查询生成历史记录。
+- `GET /api/v1/generation-records/{record_id}`：查询单次生成详情。
 
 测试用例字段固定为：
 
@@ -81,6 +83,8 @@ RATE_LIMIT_ENABLED
 RATE_LIMIT_REQUESTS
 RATE_LIMIT_WINDOW_SECONDS
 REQUEST_LOG_ENABLED
+GENERATION_HISTORY_ENABLED
+GENERATION_HISTORY_DB_PATH
 CORS_ALLOW_ORIGINS
 CORS_ALLOW_CREDENTIALS
 ```
@@ -94,6 +98,8 @@ X-API-Key: your-service-api-key
 ```
 
 应用默认对 `/api/v1/*` 启用内存级限流：每个调用方每 60 秒最多 60 次请求。可以通过 `RATE_LIMIT_ENABLED`、`RATE_LIMIT_REQUESTS` 和 `RATE_LIMIT_WINDOW_SECONDS` 调整。公网部署时仍建议在 API 网关或反向代理层增加限流、HTTPS 和访问日志。
+
+生成接口默认会把请求、响应摘要、完整响应 JSON、失败原因和耗时写入 SQLite：`GENERATION_HISTORY_DB_PATH=data/app.sqlite3`。该数据库属于运行数据，已被 `.gitignore` 排除；部署时应挂载到持久化数据盘。
 
 RAG 默认使用本地 `hash` embedding，便于无模型启动。需要切换到轻量中文语义模型时，可以配置：
 
@@ -175,6 +181,15 @@ curl -X POST http://127.0.0.1:8000/api/v1/test-cases/generate `
   "retrieved_context": []
 }
 ```
+
+查询生成历史：
+
+```powershell
+curl -X GET "http://127.0.0.1:8000/api/v1/generation-records?limit=20&offset=0" `
+  -H "X-API-Key: your-service-api-key"
+```
+
+返回的历史摘要包含 `id`、`created_at`、`status`、`description`、`case_count`、`duration_ms`、`model`、`retrieved_sources` 等字段；详情接口会额外返回原始请求和生成响应。
 
 ## 集成方式
 

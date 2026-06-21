@@ -99,6 +99,8 @@ class Settings:
     rate_limit_requests: int = 60
     rate_limit_window_seconds: int = 60
     request_log_enabled: bool = True
+    generation_history_enabled: bool = True
+    generation_history_db_path: str = "data/app.sqlite3"
     cors_allow_origins: list[str] = field(
         default_factory=lambda: _get_csv(None, DEFAULT_CORS_ALLOW_ORIGINS)
     )
@@ -207,6 +209,16 @@ def get_settings() -> Settings:
             _get_config_value(legacy, "REQUEST_LOG_ENABLED"),
             True,
         ),
+        generation_history_enabled=_get_bool(
+            _get_config_value(legacy, "GENERATION_HISTORY_ENABLED"),
+            True,
+        ),
+        generation_history_db_path=_get_config_value(
+            legacy,
+            "GENERATION_HISTORY_DB_PATH",
+            default="data/app.sqlite3",
+        )
+        or "data/app.sqlite3",
         cors_allow_origins=cors_allow_origins,
         cors_allow_credentials=cors_allow_credentials,
     )

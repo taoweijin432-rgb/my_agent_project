@@ -24,6 +24,8 @@ RATE_LIMIT_ENABLED=true
 RATE_LIMIT_REQUESTS=60
 RATE_LIMIT_WINDOW_SECONDS=60
 REQUEST_LOG_ENABLED=true
+GENERATION_HISTORY_ENABLED=true
+GENERATION_HISTORY_DB_PATH=data/app.sqlite3
 CORS_ALLOW_ORIGINS=https://your-frontend.example.com
 CORS_ALLOW_CREDENTIALS=false
 ```
@@ -58,12 +60,14 @@ docker build -t ai-testcase-generator .
 ```powershell
 docker run --rm -p 8000:8000 `
   --env-file .env.runtime `
-  -v ${PWD}\data\chroma:/app/data/chroma `
+  -v ${PWD}\data:/app/data `
   -v ${PWD}\.model_cache\huggingface:/app/.model_cache/huggingface `
   ai-testcase-generator
 ```
 
 `.env.runtime` 只放在本机，不提交到仓库。容器镜像不会包含 `.env/`、`.model_cache/`、`data/chroma/`、`logs/` 或 `knowledge_export/`。
+
+生成历史默认写入 `data/app.sqlite3`。如果使用 Docker，必须挂载 `/app/data` 或单独挂载 SQLite 文件所在目录，否则容器删除后历史记录会丢失。
 
 ## 4. 知识库导入
 
@@ -114,6 +118,7 @@ __pycache__/
 - 所有 `/api/v1/*` 接口必须携带 `X-API-Key`。
 - `CORS_ALLOW_ORIGINS` 必须配置为真实前端域名，不使用 `*`。
 - 应用内 `RATE_LIMIT_*` 必须按真实调用量调整；公网环境仍建议在网关层做限流。
+- `GENERATION_HISTORY_DB_PATH` 所在目录必须持久化，并纳入备份策略。
 - `APP_API_KEY` 和 `ZHIPU_API_KEY` 必须来自环境变量或部署密钥管理。
 - Chroma 数据目录需要持久化备份。
 - 模型缓存目录需要放在 D 盘或部署机器的数据盘，避免写入系统盘。

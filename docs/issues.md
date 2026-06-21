@@ -25,6 +25,7 @@
 | ISSUE-010 | low | done | 工作区包含运行产物，需继续依赖忽略规则避免污染版本库 |
 | ISSUE-011 | medium | done | 缺少 Docker、CI 和部署说明，GitHub 交付基线不足 |
 | ISSUE-012 | high | in_progress | 公网生产仍缺少限流、结构化日志、监控和 HTTPS 网关 |
+| ISSUE-013 | medium | done | 生成结果未落库，无法审计、回放和统计生成质量 |
 
 ## 问题详情
 
@@ -152,9 +153,19 @@
 - 剩余风险：内存限流只适合单进程基础防护，不能替代多实例共享限流、WAF、HTTPS、集中日志和监控告警。
 - 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `44 passed, 2 warnings`。
 
+### ISSUE-013 生成结果未落库，无法审计、回放和统计生成质量
+
+- 严重级别：`medium`
+- 状态：`done`
+- 位置：`app/services/history.py`、`app/api/routes.py`、`app/models/test_case.py`
+- 影响：此前生成接口只把结果返回给调用方，服务端不保存输入、输出、失败原因或耗时。后续无法做历史记录页面、质量回放、问题排查、成本统计或提示词版本对比。
+- 建议：增加生成记录持久化，保存请求、响应、metadata、失败原因、耗时和 request id；提供列表和详情查询接口；运行数据不能进入 Git 仓库。
+- 修复：新增 SQLite 生成历史存储，默认写入 `GENERATION_HISTORY_DB_PATH=data/app.sqlite3`；`POST /api/v1/test-cases/generate` 成功和失败都会记录；新增 `GET /api/v1/generation-records` 和 `GET /api/v1/generation-records/{record_id}`；`.gitignore` 和 `.dockerignore` 已排除 SQLite 运行数据。
+- 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `49 passed, 2 warnings`。
+
 ## 本次检查记录
 
 - 已读：`README.md`、`docs/project-guide.md`、`requirements.txt`、核心 `app/` 模块、`scripts/`、`tests/`。
 - 已运行：`.\.venv\Scripts\python.exe -m pytest -q`
-- 结果：`44 passed, 2 warnings`
+- 结果：`49 passed, 2 warnings`
 - 限制：已完成健康检查和一次真实生成烟测；当前目录已初始化 Git，并已创建首次提交。

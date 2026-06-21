@@ -16,6 +16,9 @@ build/
 .model_cache/
 
 data/chroma/
+data/*.db
+data/*.sqlite
+data/*.sqlite3
 exports/
 logs/
 knowledge_export/

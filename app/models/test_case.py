@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -127,6 +127,32 @@ class GenerateResponse(BaseModel):
     cases: list[TestCase]
     metadata: GenerationMetadata
     retrieved_context: list[KnowledgeChunk] = Field(default_factory=list)
+
+
+class GenerationRecordSummary(BaseModel):
+    id: str
+    created_at: str
+    request_id: str | None = None
+    status: Literal["success", "failed"]
+    description: str
+    duration_ms: float
+    model: str | None = None
+    attempts: int | None = None
+    retrieved_chunks: int | None = None
+    retrieved_sources: list[str] = Field(default_factory=list)
+    case_count: int
+    error: str | None = None
+
+
+class GenerationRecordDetail(GenerationRecordSummary):
+    request: GenerateRequest
+    response: GenerateResponse | None = None
+
+
+class GenerationRecordListResponse(BaseModel):
+    records: list[GenerationRecordSummary]
+    limit: int
+    offset: int
 
 
 class ExportRequest(BaseModel):
