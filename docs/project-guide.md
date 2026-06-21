@@ -175,6 +175,16 @@ POST /api/v1/knowledge/query
 }
 ```
 
+### 5.6 管理知识库文档
+
+```http
+GET /api/v1/knowledge/documents
+POST /api/v1/knowledge/documents/upsert
+DELETE /api/v1/knowledge/documents?source=knowledge/prd/login.md
+```
+
+文档管理接口用于查看当前索引里的文档清单、按 `source` 更新单个文档、按 `source` 删除文档。upsert 会替换同 `source` 的旧 chunk，并把当前文档版本号加 1。
+
 ## 6. 测试用例数据结构
 
 每条测试用例固定包含：
@@ -226,11 +236,14 @@ RAG 相关代码在 `app/services/rag.py`。
 
 - 文档导入时，把长文本按 `chunk_size` 切分成片段。
 - 每个片段写入 Chroma。
+- 每个片段的 metadata 会记录 `source`、`document_type`、`module`、`tags`、`version`、`content_hash` 和 `updated_at`。
 - 生成测试用例时，用用户需求作为查询文本。
 - Chroma 返回最相关的知识片段。
 - 这些片段会进入 Prompt，约束大模型不要凭空编造业务规则。
 
 embedding 支持配置化。默认使用本地 deterministic hash embedding，不需要额外下载模型，适合本地启动和演示；也可以切换为 `sentence_transformers`，例如轻量中文模型 `BAAI/bge-small-zh-v1.5`。切换不同 embedding 模型时，需要使用新的 Chroma collection，避免旧向量维度和新模型维度不一致。
+
+批量初始化知识库时可以继续使用导入脚本配合 `--reset`。日常维护单个文档时优先使用 upsert/delete 接口，避免同一个 `source` 的旧内容残留在检索结果中。
 
 ## 9. Prompt 约束策略
 

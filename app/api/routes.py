@@ -16,6 +16,10 @@ from app.models.test_case import (
     GenerateResponse,
     GenerationRecordDetail,
     GenerationRecordListResponse,
+    KnowledgeDocumentDeleteResponse,
+    KnowledgeDocumentListResponse,
+    KnowledgeDocumentUpsertRequest,
+    KnowledgeDocumentUpsertResponse,
     IngestRequest,
     IngestResponse,
     QueryRequest,
@@ -124,6 +128,56 @@ def query_knowledge(request: QueryRequest) -> QueryResponse:
     service = _rag_service()
     chunks = service.search(request.query, top_k=request.top_k)
     return QueryResponse(chunks=chunks)
+
+
+@router.get(
+    "/knowledge/documents",
+    response_model=KnowledgeDocumentListResponse,
+    tags=["knowledge"],
+)
+def list_knowledge_documents(
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> KnowledgeDocumentListResponse:
+    documents, total = _rag_service().list_documents(limit=limit, offset=offset)
+    return KnowledgeDocumentListResponse(
+        documents=documents,
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.post(
+    "/knowledge/documents/upsert",
+    response_model=KnowledgeDocumentUpsertResponse,
+    tags=["knowledge"],
+)
+def upsert_knowledge_document(
+    request: KnowledgeDocumentUpsertRequest,
+) -> KnowledgeDocumentUpsertResponse:
+    added_chunks, replaced_chunks, version = _rag_service().upsert_document(
+        request.document,
+        chunk_size=request.chunk_size,
+    )
+    return KnowledgeDocumentUpsertResponse(
+        source=request.document.source,
+        version=version,
+        added_chunks=added_chunks,
+        replaced_chunks=replaced_chunks,
+    )
+
+
+@router.delete(
+    "/knowledge/documents",
+    response_model=KnowledgeDocumentDeleteResponse,
+    tags=["knowledge"],
+)
+def delete_knowledge_document(
+    source: str = Query(..., min_length=1),
+) -> KnowledgeDocumentDeleteResponse:
+    deleted_chunks = _rag_service().delete_document(source)
+    return KnowledgeDocumentDeleteResponse(source=source, deleted_chunks=deleted_chunks)
 
 
 @router.get(

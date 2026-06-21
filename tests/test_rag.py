@@ -99,3 +99,57 @@ def test_rag_service_ingests_and_searches_with_hash_embedding(tmp_path) -> None:
     assert chunks[0].document_type == "prd"
     assert chunks[0].module in {"login", "order"}
     assert "prd" in chunks[0].tags
+
+
+def test_rag_service_upserts_lists_and_deletes_documents(tmp_path) -> None:
+    settings = Settings(
+        chroma_path=str(tmp_path / "chroma"),
+        chroma_collection="test_knowledge_document_management",
+        embedding_provider="hash",
+    )
+    service = RagService(settings)
+    original = KnowledgeDocument(
+        source="knowledge/prd/login.md",
+        content="手机号验证码登录，验证码 6 位数字，5 分钟有效。",
+        document_type="prd",
+        module="login",
+        tags=["prd", "login"],
+    )
+    updated = KnowledgeDocument(
+        source="knowledge/prd/login.md",
+        content="账号密码登录，密码错误 5 次后锁定账号。",
+        document_type="prd",
+        module="login",
+        tags=["prd", "login", "auth"],
+    )
+
+    added, replaced, version = service.upsert_document(original, chunk_size=200)
+    documents, total = service.list_documents()
+    added_updated, replaced_updated, version_updated = service.upsert_document(
+        updated,
+        chunk_size=200,
+    )
+    chunks_after_update = service.search("账号锁定", top_k=3)
+    documents_after_update, total_after_update = service.list_documents()
+    deleted = service.delete_document("knowledge/prd/login.md")
+    documents_after_delete, total_after_delete = service.list_documents()
+
+    assert added == 1
+    assert replaced == 0
+    assert version == 1
+    assert total == 1
+    assert documents[0].source == "knowledge/prd/login.md"
+    assert documents[0].version == 1
+    assert documents[0].chunk_count == 1
+    assert documents[0].content_hash
+    assert documents[0].updated_at
+    assert added_updated == 1
+    assert replaced_updated == 1
+    assert version_updated == 2
+    assert total_after_update == 1
+    assert documents_after_update[0].version == 2
+    assert "auth" in documents_after_update[0].tags
+    assert all("验证码" not in chunk.content for chunk in chunks_after_update)
+    assert deleted == 1
+    assert total_after_delete == 0
+    assert documents_after_delete == []

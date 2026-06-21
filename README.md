@@ -11,6 +11,9 @@
 - `POST /api/v1/test-cases/export`：将测试用例导出为 Excel。
 - `POST /api/v1/knowledge/ingest`：导入 PRD、历史用例等知识文本到 Chroma。
 - `POST /api/v1/knowledge/query`：验证知识库检索结果。
+- `GET /api/v1/knowledge/documents`：查看知识库文档清单和当前版本。
+- `POST /api/v1/knowledge/documents/upsert`：按 `source` 更新或新增单个知识库文档。
+- `DELETE /api/v1/knowledge/documents?source=...`：按 `source` 删除知识库文档。
 - `GET /api/v1/generation-records`：查询生成历史记录。
 - `GET /api/v1/generation-records/{record_id}`：查询单次生成详情。
 
@@ -148,6 +151,29 @@ python scripts/ingest_documents.py docs/prd-login.md docs/history-cases.md
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\evaluate_rag.py --top-k 5
+```
+
+日常维护单个文档时，优先使用 upsert 接口。它会先删除同 `source` 的旧 chunk，再写入新 chunk，并把文档版本号加 1：
+
+```powershell
+curl -X POST http://127.0.0.1:8000/api/v1/knowledge/documents/upsert `
+  -H "Content-Type: application/json" `
+  -H "X-API-Key: your-service-api-key" `
+  -d "{\"document\":{\"source\":\"knowledge/prd/login.md\",\"content\":\"新的登录规则\",\"document_type\":\"prd\",\"module\":\"login\",\"tags\":[\"prd\",\"login\"]},\"chunk_size\":900}"
+```
+
+查看当前知识库文档清单：
+
+```powershell
+curl -X GET "http://127.0.0.1:8000/api/v1/knowledge/documents?limit=100&offset=0" `
+  -H "X-API-Key: your-service-api-key"
+```
+
+删除某个文档：
+
+```powershell
+curl -X DELETE "http://127.0.0.1:8000/api/v1/knowledge/documents?source=knowledge/prd/login.md" `
+  -H "X-API-Key: your-service-api-key"
 ```
 
 ## 生成测试用例

@@ -26,6 +26,7 @@
 | ISSUE-011 | medium | done | 缺少 Docker、CI 和部署说明，GitHub 交付基线不足 |
 | ISSUE-012 | high | in_progress | 公网生产仍缺少限流、结构化日志、监控和 HTTPS 网关 |
 | ISSUE-013 | medium | done | 生成结果未落库，无法审计、回放和统计生成质量 |
+| ISSUE-014 | medium | done | 知识库缺少文档级更新、删除和当前版本管理能力 |
 
 ## 问题详情
 
@@ -163,9 +164,19 @@
 - 修复：新增 SQLite 生成历史存储，默认写入 `GENERATION_HISTORY_DB_PATH=data/app.sqlite3`；`POST /api/v1/test-cases/generate` 成功和失败都会记录；新增 `GET /api/v1/generation-records` 和 `GET /api/v1/generation-records/{record_id}`；`.gitignore` 和 `.dockerignore` 已排除 SQLite 运行数据。
 - 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `49 passed, 2 warnings`。
 
+### ISSUE-014 知识库缺少文档级更新、删除和当前版本管理能力
+
+- 严重级别：`medium`
+- 状态：`done`
+- 位置：`app/services/rag.py`、`app/api/routes.py`、`app/models/test_case.py`
+- 影响：此前知识库主要支持批量导入和整体 reset。真实使用中某个 PRD、接口文档或规范更新时，无法按 `source` 精确替换或删除，容易让旧 chunk 残留在检索结果里，影响生成准确性。
+- 建议：为知识库增加文档清单、按 source upsert、按 source delete，并在 chunk metadata 记录当前版本、内容 hash 和更新时间。
+- 修复：新增 `GET /api/v1/knowledge/documents`、`POST /api/v1/knowledge/documents/upsert`、`DELETE /api/v1/knowledge/documents?source=...`；RAG metadata 新增 `version`、`content_hash`、`updated_at`；upsert 会先删除同 source 旧 chunk，再写入新 chunk 并递增版本。
+- 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `53 passed, 3 warnings`。
+
 ## 本次检查记录
 
 - 已读：`README.md`、`docs/project-guide.md`、`requirements.txt`、核心 `app/` 模块、`scripts/`、`tests/`。
 - 已运行：`.\.venv\Scripts\python.exe -m pytest -q`
-- 结果：`49 passed, 2 warnings`
+- 结果：`53 passed, 3 warnings`
 - 限制：已完成健康检查和一次真实生成烟测；当前目录已初始化 Git，并已创建首次提交。

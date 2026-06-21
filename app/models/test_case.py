@@ -196,6 +196,43 @@ class KnowledgeDocument(BaseModel):
     tags: list[str] = Field(default_factory=list)
 
 
+class KnowledgeDocumentSummary(BaseModel):
+    source: str
+    document_type: str = "manual"
+    module: str = "general"
+    tags: list[str] = Field(default_factory=list)
+    version: int = 1
+    chunk_count: int
+    content_hash: str | None = None
+    updated_at: str | None = None
+
+
+class KnowledgeDocumentListResponse(BaseModel):
+    documents: list[KnowledgeDocumentSummary]
+    total: int
+    limit: int
+    offset: int
+
+
+class KnowledgeDocumentUpsertRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    document: KnowledgeDocument
+    chunk_size: int = Field(default=900, ge=200, le=3000)
+
+
+class KnowledgeDocumentUpsertResponse(BaseModel):
+    source: str
+    version: int
+    added_chunks: int
+    replaced_chunks: int
+
+
+class KnowledgeDocumentDeleteResponse(BaseModel):
+    source: str
+    deleted_chunks: int
+
+
 class IngestRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
