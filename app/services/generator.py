@@ -20,6 +20,7 @@ from app.services.agent_workflow import (
 from app.services.llm import LLMClient
 from app.services.llm import LLMError
 from app.services.prompt import PROMPT_TEMPLATE_VERSION, build_generation_messages
+from app.services.query_rewrite import rewrite_knowledge_query
 from app.services.rag import RagService
 from app.services.reviewer import build_review_feedback, review_generated_cases
 from app.services.usage import estimate_generation_usage
@@ -62,6 +63,37 @@ class TestCaseGenerator:
             ),
             state,
         )
+        workflow.run_node(
+            WorkflowNode(
+                name="route_after_retrieval",
+                action=lambda current: _route_after_retrieval_node(
+                    current,
+                    self.settings,
+                ),
+                summary=_summarize_retrieval_route,
+            ),
+            state,
+        )
+        if state.retrieval_retry_requested:
+            workflow.run_node(
+                WorkflowNode(
+                    name="rewrite_query",
+                    action=_rewrite_query_node,
+                    summary=lambda current: (
+                        f"rewritten_query_length={len(current.rewritten_query or '')}"
+                    ),
+                ),
+                state,
+            )
+            workflow.run_node(
+                WorkflowNode(
+                    name="retrieve_rewritten_knowledge",
+                    action=lambda current: _retrieve_knowledge_node(current, self.rag),
+                    summary=lambda current: f"retrieved_chunks={len(current.contexts)}",
+                ),
+                state,
+            )
+            state.retrieval_retry_requested = False
         workflow.run_node(
             WorkflowNode(
                 name="plan_test_strategy",
@@ -211,10 +243,40 @@ def _retrieve_knowledge_node(
     state: GenerationWorkflowState,
     rag: RagService,
 ) -> None:
+    query = state.rewritten_query or state.request.description
+    state.knowledge_query = query
+    state.retrieval_attempts += 1
     state.contexts = rag.search(
-        state.request.description,
+        query,
         top_k=state.request.knowledge_top_k,
     )
+
+
+def _route_after_retrieval_node(
+    state: GenerationWorkflowState,
+    settings: Settings,
+) -> None:
+    state.retrieval_retry_requested = (
+        settings.agent_query_rewrite_enabled
+        and state.request.knowledge_top_k > 0
+        and len(state.contexts) < settings.agent_query_rewrite_min_chunks
+        and state.rewritten_query is None
+    )
+
+
+def _summarize_retrieval_route(state: GenerationWorkflowState) -> str:
+    if state.request.knowledge_top_k <= 0:
+        return "decision=accept, reason=rag_disabled"
+    if state.retrieval_retry_requested:
+        return "decision=rewrite_query, reason=insufficient_context"
+    if not state.contexts:
+        return "decision=accept, reason=context_unavailable"
+    return "decision=accept, reason=context_available"
+
+
+def _rewrite_query_node(state: GenerationWorkflowState) -> None:
+    analysis = _require_value(state.analysis, "analysis")
+    state.rewritten_query = rewrite_knowledge_query(state.request, analysis)
 
 
 def _plan_test_strategy_node(state: GenerationWorkflowState) -> None:

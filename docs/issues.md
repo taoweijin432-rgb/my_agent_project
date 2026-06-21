@@ -34,6 +34,7 @@
 | ISSUE-019 | medium | done | 生成链路缺少显式 Agent 工作流和架构讲解文档 |
 | ISSUE-020 | medium | done | Agent 工作流缺少显式状态对象和节点抽象，后续迁移框架成本偏高 |
 | ISSUE-021 | medium | done | 生成后缺少 Reviewer Agent 和条件修复路径，低质量结果只能事后发现 |
+| ISSUE-022 | medium | done | RAG 初次召回不足时缺少 query rewrite 条件边，容易直接带空上下文生成 |
 
 ## 问题详情
 
@@ -251,9 +252,19 @@
 - 修复：新增 `GenerationReview`、`review_generated_cases()` 和 `build_review_feedback()`；生成链路新增 `review_cases` 与 `route_after_review` 节点；`metadata.review` 返回审查结论；新增 `AGENT_REVIEW_ENABLED`、`AGENT_REVIEW_RETRY_ENABLED`、`AGENT_REVIEW_MIN_SCORE` 配置；默认审查开启、自动重试关闭，避免隐式增加 LLM 成本。
 - 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `78 passed, 3 warnings`。
 
+### ISSUE-022 RAG 初次召回不足时缺少 query rewrite 条件边，容易直接带空上下文生成
+
+- 严重级别：`medium`
+- 状态：`done`
+- 位置：`app/services/query_rewrite.py`、`app/services/generator.py`、`app/services/agent_workflow.py`、`app/core/config.py`
+- 影响：此前 RAG 初次召回为空或过少时，链路会直接进入 Planner 和 Prompt。模型仍可生成结果，但缺少企业知识 grounding，容易依赖输入描述和隐式假设。
+- 建议：在 RAG 后增加条件路由；当召回数量低于阈值时，使用本地规则改写检索 query，并再检索一次。该逻辑不应默认调用 LLM，避免增加成本和不确定性。
+- 修复：新增 `rewrite_knowledge_query()`；新增 `route_after_retrieval`、`rewrite_query`、`retrieve_rewritten_knowledge` 节点；`GenerationWorkflowState` 记录 `knowledge_query`、`rewritten_query`、`retrieval_attempts` 和检索重试决策；新增 `AGENT_QUERY_REWRITE_ENABLED`、`AGENT_QUERY_REWRITE_MIN_CHUNKS` 配置。
+- 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `83 passed, 3 warnings`。
+
 ## 本次检查记录
 
 - 已读：`README.md`、`docs/project-guide.md`、`requirements.txt`、核心 `app/` 模块、`scripts/`、`tests/`。
 - 已运行：`.\.venv\Scripts\python.exe -m pytest -q`
-- 结果：`78 passed, 3 warnings`
+- 结果：`83 passed, 3 warnings`
 - 限制：已完成健康检查和一次真实生成烟测；当前目录已初始化 Git，并已创建首次提交。

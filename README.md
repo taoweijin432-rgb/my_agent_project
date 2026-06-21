@@ -97,6 +97,8 @@ LLM_COST_CURRENCY
 AGENT_REVIEW_ENABLED
 AGENT_REVIEW_RETRY_ENABLED
 AGENT_REVIEW_MIN_SCORE
+AGENT_QUERY_REWRITE_ENABLED
+AGENT_QUERY_REWRITE_MIN_CHUNKS
 RATE_LIMIT_ENABLED
 RATE_LIMIT_REQUESTS
 RATE_LIMIT_WINDOW_SECONDS
@@ -132,6 +134,8 @@ EMBEDDING_LOCAL_FILES_ONLY=true
 ```
 
 不同 embedding 维度不能混用同一个 Chroma collection。切换模型时建议同步更换 `CHROMA_COLLECTION`，例如 `test_knowledge_bge_small_zh_v15`。
+
+生成链路默认开启本地 query rewrite。初次 RAG 召回少于 `AGENT_QUERY_REWRITE_MIN_CHUNKS` 时，系统会用需求、关注类型、风险类型和测试关键词扩展检索 query，并再检索一次。该过程不调用 LLM。
 
 ## 导入知识库
 

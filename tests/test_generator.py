@@ -20,12 +20,15 @@ class FakeLLM:
 
 
 class FakeRag:
-    def __init__(self, chunks=None):
+    def __init__(self, chunks=None, responses=None):
         self.chunks = chunks or []
+        self.responses = list(responses or [])
         self.calls = []
 
     def search(self, query: str, top_k: int):
         self.calls.append((query, top_k))
+        if self.responses:
+            return self.responses.pop(0)
         return self.chunks
 
 
@@ -47,6 +50,7 @@ def _generator(
     *,
     review_retry_enabled: bool = False,
     review_min_score: int = 50,
+    query_rewrite_enabled: bool = True,
 ) -> GeneratorService:
     return GeneratorService(
         settings=Settings(
@@ -54,6 +58,7 @@ def _generator(
             llm_max_retries=retries,
             agent_review_retry_enabled=review_retry_enabled,
             agent_review_min_score=review_min_score,
+            agent_query_rewrite_enabled=query_rewrite_enabled,
         ),
         llm=llm,
         rag=rag or FakeRag(),
@@ -93,9 +98,10 @@ def test_generate_success_with_context_and_metadata() -> None:
     assert response.metadata.review is not None
     assert response.metadata.review.passed is True
     workflow_names = [step.name for step in response.metadata.workflow_steps]
-    assert workflow_names[:3] == [
+    assert workflow_names[:4] == [
         "analyze_requirement",
         "retrieve_knowledge",
+        "route_after_retrieval",
         "plan_test_strategy",
     ]
     assert "call_llm" in workflow_names
@@ -103,6 +109,57 @@ def test_generate_success_with_context_and_metadata() -> None:
     assert "route_after_review" in workflow_names
     assert "estimate_usage" in workflow_names
     assert response.retrieved_context == [context]
+
+
+def test_generate_rewrites_query_when_rag_context_is_insufficient() -> None:
+    context = KnowledgeChunk(
+        content="登录接口需要校验 JWT 角色权限",
+        source="knowledge/api/auth.md",
+        document_type="api",
+        module="auth",
+    )
+    llm = FakeLLM([{"cases": [_case("JWT 角色权限登录")]}])
+    rag = FakeRag(responses=[[], [context]])
+
+    response = _generator(llm, rag).generate(
+        GenerateRequest(
+            description="生成 JWT 登录测试用例",
+            knowledge_top_k=2,
+            include_context=True,
+        )
+    )
+
+    workflow_names = [step.name for step in response.metadata.workflow_steps]
+    route_step = next(
+        step for step in response.metadata.workflow_steps if step.name == "route_after_retrieval"
+    )
+
+    assert rag.calls[0] == ("生成 JWT 登录测试用例", 2)
+    assert rag.calls[1][1] == 2
+    assert "检索补充关键词" in rag.calls[1][0]
+    assert "rewrite_query" in workflow_names
+    assert "retrieve_rewritten_knowledge" in workflow_names
+    assert route_step.summary == "decision=rewrite_query, reason=insufficient_context"
+    assert response.metadata.retrieved_chunks == 1
+    assert response.retrieved_context == [context]
+
+
+def test_generate_records_unavailable_context_when_query_rewrite_is_disabled() -> None:
+    llm = FakeLLM([{"cases": [_case("无上下文用例")]}])
+
+    response = _generator(
+        llm,
+        FakeRag([]),
+        query_rewrite_enabled=False,
+    ).generate(GenerateRequest(description="生成登录测试用例"))
+
+    workflow_names = [step.name for step in response.metadata.workflow_steps]
+    route_step = next(
+        step for step in response.metadata.workflow_steps if step.name == "route_after_retrieval"
+    )
+
+    assert "rewrite_query" not in workflow_names
+    assert route_step.summary == "decision=accept, reason=context_unavailable"
 
 
 def test_generate_accepts_test_cases_alias() -> None:

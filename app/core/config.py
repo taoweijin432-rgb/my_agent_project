@@ -115,6 +115,8 @@ class Settings:
     agent_review_enabled: bool = True
     agent_review_retry_enabled: bool = False
     agent_review_min_score: int = 50
+    agent_query_rewrite_enabled: bool = True
+    agent_query_rewrite_min_chunks: int = 1
     rate_limit_enabled: bool = True
     rate_limit_requests: int = 60
     rate_limit_window_seconds: int = 60
@@ -255,6 +257,15 @@ def get_settings() -> Settings:
                 50,
                 minimum=0,
             ),
+        ),
+        agent_query_rewrite_enabled=_get_bool(
+            _get_config_value(legacy, "AGENT_QUERY_REWRITE_ENABLED"),
+            True,
+        ),
+        agent_query_rewrite_min_chunks=_get_int(
+            _get_config_value(legacy, "AGENT_QUERY_REWRITE_MIN_CHUNKS"),
+            1,
+            minimum=1,
         ),
         rate_limit_enabled=_get_bool(
             _get_config_value(legacy, "RATE_LIMIT_ENABLED"),

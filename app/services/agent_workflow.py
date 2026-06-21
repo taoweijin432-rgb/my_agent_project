@@ -47,6 +47,10 @@ class GenerationWorkflowState:
     request: GenerateRequest
     analysis: RequirementAnalysis | None = None
     contexts: list[KnowledgeChunk] = field(default_factory=list)
+    knowledge_query: str | None = None
+    rewritten_query: str | None = None
+    retrieval_attempts: int = 0
+    retrieval_retry_requested: bool = False
     plan: TestGenerationPlan | None = None
     attempt: int = 0
     correction: str | None = None

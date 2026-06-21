@@ -81,6 +81,16 @@ def test_settings_reads_agent_review_configuration(monkeypatch) -> None:
     assert settings.agent_review_min_score == 75
 
 
+def test_settings_reads_agent_query_rewrite_configuration(monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_QUERY_REWRITE_ENABLED", "false")
+    monkeypatch.setenv("AGENT_QUERY_REWRITE_MIN_CHUNKS", "2")
+
+    settings = get_settings()
+
+    assert settings.agent_query_rewrite_enabled is False
+    assert settings.agent_query_rewrite_min_chunks == 2
+
+
 def test_settings_reads_embedding_configuration(monkeypatch) -> None:
     monkeypatch.setenv("EMBEDDING_PROVIDER", "sentence_transformers")
     monkeypatch.setenv("EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5")

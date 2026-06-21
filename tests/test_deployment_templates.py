@@ -20,6 +20,8 @@ def test_runtime_env_example_contains_required_production_settings() -> None:
         "AGENT_REVIEW_ENABLED=true",
         "AGENT_REVIEW_RETRY_ENABLED=false",
         "AGENT_REVIEW_MIN_SCORE=50",
+        "AGENT_QUERY_REWRITE_ENABLED=true",
+        "AGENT_QUERY_REWRITE_MIN_CHUNKS=1",
         "RATE_LIMIT_ENABLED=true",
         "REQUEST_LOG_ENABLED=true",
         "GENERATION_HISTORY_ENABLED=true",
