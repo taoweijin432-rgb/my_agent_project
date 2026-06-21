@@ -55,6 +55,7 @@ def build_generation_messages(
     request: GenerateRequest,
     contexts: list[KnowledgeChunk],
     correction: str | None = None,
+    strategy: str | None = None,
 ) -> list[dict[str, str]]:
     focus_types = ", ".join(item.value for item in request.focus_types or [])
     context_text = _format_contexts(contexts)
@@ -78,6 +79,9 @@ def build_generation_messages(
 
 企业知识库检索结果：
 {context_text}
+
+测试策略规划：
+{strategy or "自动规划"}
 
 生成数量上限：{request.max_cases}
 优先关注类型：{focus_types or "自动判断"}

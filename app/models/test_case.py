@@ -116,6 +116,13 @@ class GenerationUsage(BaseModel):
     currency: str | None = None
 
 
+class WorkflowStep(BaseModel):
+    name: str
+    status: Literal["success", "failed", "skipped"]
+    summary: str
+    duration_ms: float
+
+
 class GenerationMetadata(BaseModel):
     model: str
     attempts: int
@@ -123,6 +130,7 @@ class GenerationMetadata(BaseModel):
     retrieved_sources: list[str] = Field(default_factory=list)
     prompt_version: str = "test-case-generation-v1"
     usage: GenerationUsage = Field(default_factory=GenerationUsage)
+    workflow_steps: list[WorkflowStep] = Field(default_factory=list)
 
 
 class GenerateRequest(BaseModel):

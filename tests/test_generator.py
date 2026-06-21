@@ -78,6 +78,14 @@ def test_generate_success_with_context_and_metadata() -> None:
     assert response.metadata.usage.prompt_characters > 0
     assert response.metadata.usage.completion_characters > 0
     assert response.metadata.usage.total_tokens_estimate > 0
+    workflow_names = [step.name for step in response.metadata.workflow_steps]
+    assert workflow_names[:3] == [
+        "analyze_requirement",
+        "retrieve_knowledge",
+        "plan_test_strategy",
+    ]
+    assert "call_llm" in workflow_names
+    assert "estimate_usage" in workflow_names
     assert response.retrieved_context == [context]
 
 
@@ -112,6 +120,10 @@ def test_generate_retries_after_validation_error() -> None:
     assert response.metadata.attempts == 2
     assert response.metadata.usage.prompt_characters > 0
     assert response.metadata.usage.completion_characters > 0
+    validation_steps = [
+        step for step in response.metadata.workflow_steps if step.name == "validate_output"
+    ]
+    assert [step.status for step in validation_steps] == ["failed", "success"]
     assert response.cases[0].title == "修复后的用例"
     assert "上一次输出没有通过后端校验" in llm.messages[1][1]["content"]
 

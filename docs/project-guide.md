@@ -214,19 +214,22 @@ DELETE /api/v1/knowledge/documents?source=knowledge/prd/login.md
 
 ## 7. 生成链路详解
 
-生成接口的核心代码在 `app/services/generator.py`。
+生成接口的核心代码在 `app/services/generator.py`，工作流节点和策略规划在 `app/services/agent_workflow.py`。Agent 架构说明见 [docs/agent-architecture.md](agent-architecture.md)。
 
 完整链路如下：
 
 1. API 层接收 `GenerateRequest`。
-2. `RagService.search()` 根据需求描述从 Chroma 检索相关知识。
-3. `build_generation_messages()` 把需求、知识库上下文、Few-shot 示例拼成 Prompt。
-4. `LLMClient.generate_json()` 调用智谱 `/chat/completions` 接口。
-5. 智谱返回 JSON 字符串。
-6. 后端解析 JSON。
-7. `TestCaseCollection.model_validate()` 用 Pydantic 校验字段。
-8. 如果校验失败，把错误信息放回 Prompt 自动重试。
-9. 校验成功后返回 `GenerateResponse`。
+2. `analyze_requirement()` 做本地需求分析和风险类型识别。
+3. `RagService.search()` 根据需求描述从 Chroma 检索相关知识。
+4. `plan_test_generation()` 基于需求分析和知识来源规划测试策略。
+5. `build_generation_messages()` 把需求、知识库上下文、测试策略、Few-shot 示例拼成 Prompt。
+6. `LLMClient.generate_json()` 调用智谱 `/chat/completions` 接口。
+7. 后端解析 JSON。
+8. `TestCaseCollection.model_validate()` 用 Pydantic 校验字段。
+9. 如果校验失败，把错误信息放回 Prompt 自动重试。
+10. 校验成功后后处理、估算 usage，并返回 `GenerateResponse`。
+
+每次成功生成都会在 `metadata.workflow_steps` 中返回节点轨迹，包括节点名、状态、摘要和耗时。
 
 生成记录落库后，历史详情会基于请求和响应计算一份本地质量报告。评分维度包括用例数量、标题重复率、目标类型覆盖、步骤/预期完整度和知识库 grounding。该评分用于回放和筛选，不会调用大模型，也不替代人工验收。
 

@@ -31,6 +31,7 @@
 | ISSUE-016 | high | done | 生产环境缺少启动前配置校验，可能带不安全默认值上线 |
 | ISSUE-017 | medium | done | 缺少可直接复用的生产运行入口和容器健康检查 |
 | ISSUE-018 | medium | done | 缺少 LLM 用量与估算成本统计，难以做费用治理 |
+| ISSUE-019 | medium | done | 生成链路缺少显式 Agent 工作流和架构讲解文档 |
 
 ## 问题详情
 
@@ -218,9 +219,19 @@
 - 修复：新增 `GenerationUsage` 和本地 usage 估算服务；生成成功时写入 `metadata.usage`，历史列表和详情返回 `usage`；生成失败时尽量记录已产生的 prompt/output 估算；新增 `LLM_PROMPT_PRICE_PER_1K_TOKENS`、`LLM_COMPLETION_PRICE_PER_1K_TOKENS`、`LLM_COST_CURRENCY` 配置。
 - 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `70 passed, 3 warnings`。
 
+### ISSUE-019 生成链路缺少显式 Agent 工作流和架构讲解文档
+
+- 严重级别：`medium`
+- 状态：`done`
+- 位置：`app/services/agent_workflow.py`、`app/services/generator.py`、`docs/agent-architecture.md`
+- 影响：此前生成链路虽然已有 RAG、Prompt、LLM、校验和历史记录，但从代码和响应上看仍像线性服务调用，不利于解释 Agent 状态、节点职责、失败定位和后续迁移 LangGraph。
+- 建议：先实现轻量工作流节点和 workflow trace，不急于引入重框架；同时维护一份文档解释记忆架构、上下文压缩、工作流设计、RAG、Tool Calling、评估和面试常见问题。
+- 修复：新增 `WorkflowRecorder`、需求分析节点、测试策略规划节点；生成响应的 `metadata.workflow_steps` 返回节点轨迹；Prompt 注入测试策略规划；新增 `docs/agent-architecture.md` 讲解 Agent 架构和面试技术点。
+- 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `73 passed, 3 warnings`。
+
 ## 本次检查记录
 
 - 已读：`README.md`、`docs/project-guide.md`、`requirements.txt`、核心 `app/` 模块、`scripts/`、`tests/`。
 - 已运行：`.\.venv\Scripts\python.exe -m pytest -q`
-- 结果：`70 passed, 3 warnings`
+- 结果：`73 passed, 3 warnings`
 - 限制：已完成健康检查和一次真实生成烟测；当前目录已初始化 Git，并已创建首次提交。
