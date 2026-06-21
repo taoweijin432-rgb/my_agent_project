@@ -11,12 +11,18 @@ from app.models.test_case import (
     TestCaseCollection,
 )
 from app.services.llm import LLMClient
+from app.services.llm import LLMError
 from app.services.prompt import PROMPT_TEMPLATE_VERSION, build_generation_messages
 from app.services.rag import RagService
+from app.services.usage import estimate_generation_usage
 
 
 class OutputValidationError(RuntimeError):
     """Raised when model output cannot be converted into the expected schema."""
+
+    def __init__(self, message: str, *, usage=None):
+        super().__init__(message)
+        self.usage = usage
 
 
 class TestCaseGenerator:
@@ -29,13 +35,30 @@ class TestCaseGenerator:
         contexts = self.rag.search(request.description, top_k=request.knowledge_top_k)
         correction: str | None = None
         last_error: Exception | None = None
+        prompt_messages: list[list[dict[str, str]]] = []
+        completion_payloads: list[Any] = []
 
         for attempt in range(1, self.settings.llm_max_retries + 2):
             messages = build_generation_messages(request, contexts, correction=correction)
-            payload = _normalize_payload(self.llm.generate_json(messages))
+            prompt_messages.append(messages)
+            try:
+                payload = _normalize_payload(self.llm.generate_json(messages))
+            except LLMError as exc:
+                exc.usage = estimate_generation_usage(
+                    self.settings,
+                    prompt_messages,
+                    completion_payloads,
+                )
+                raise
+            completion_payloads.append(payload)
             try:
                 collection = TestCaseCollection.model_validate(payload)
                 cases = _post_process_cases(collection.cases, max_cases=request.max_cases)
+                usage = estimate_generation_usage(
+                    self.settings,
+                    prompt_messages,
+                    completion_payloads,
+                )
                 return GenerateResponse(
                     cases=cases,
                     metadata=GenerationMetadata(
@@ -44,14 +67,22 @@ class TestCaseGenerator:
                         retrieved_chunks=len(contexts),
                         retrieved_sources=_unique_sources(contexts),
                         prompt_version=PROMPT_TEMPLATE_VERSION,
+                        usage=usage,
                     ),
                     retrieved_context=contexts if request.include_context else [],
                 )
             except ValidationError as exc:
                 last_error = exc
                 correction = str(exc)
-
-        raise OutputValidationError(f"LLM output did not match schema: {last_error}") from last_error
+        usage = estimate_generation_usage(
+            self.settings,
+            prompt_messages,
+            completion_payloads,
+        )
+        raise OutputValidationError(
+            f"LLM output did not match schema: {last_error}",
+            usage=usage,
+        ) from last_error
 
 
 def _normalize_payload(payload: Any) -> dict[str, Any]:

@@ -11,6 +11,7 @@ from app.models.test_case import (
     GenerateResponse,
     GenerationRecordDetail,
     GenerationRecordSummary,
+    GenerationUsage,
 )
 from app.services.quality import score_generation_quality
 
@@ -39,6 +40,7 @@ class GenerationHistoryStore:
         request_json = _json_dumps(request.model_dump(mode="json"))
         response_json = _json_dumps(response.model_dump(mode="json"))
         retrieved_sources = _json_dumps(response.metadata.retrieved_sources)
+        usage_json = _json_dumps(response.metadata.usage.model_dump(mode="json"))
         with self._lock:
             with self._connect() as connection:
                 connection.execute(
@@ -46,9 +48,9 @@ class GenerationHistoryStore:
                     INSERT INTO generation_records (
                         id, created_at, request_id, status, description, request_json,
                         response_json, error, duration_ms, model, attempts,
-                        retrieved_chunks, retrieved_sources_json, case_count
+                        retrieved_chunks, retrieved_sources_json, case_count, usage_json
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         record_id,
@@ -65,6 +67,7 @@ class GenerationHistoryStore:
                         response.metadata.retrieved_chunks,
                         retrieved_sources,
                         len(response.cases),
+                        usage_json,
                     ),
                 )
                 connection.commit()
@@ -77,6 +80,7 @@ class GenerationHistoryStore:
         *,
         duration_ms: float,
         request_id: str | None = None,
+        usage: GenerationUsage | None = None,
     ) -> str | None:
         if not self.enabled:
             return None
@@ -84,6 +88,7 @@ class GenerationHistoryStore:
         record_id = uuid4().hex
         created_at = _utc_now()
         request_json = _json_dumps(request.model_dump(mode="json"))
+        usage_json = _json_dumps((usage or GenerationUsage()).model_dump(mode="json"))
         with self._lock:
             with self._connect() as connection:
                 connection.execute(
@@ -91,9 +96,9 @@ class GenerationHistoryStore:
                     INSERT INTO generation_records (
                         id, created_at, request_id, status, description, request_json,
                         response_json, error, duration_ms, model, attempts,
-                        retrieved_chunks, retrieved_sources_json, case_count
+                        retrieved_chunks, retrieved_sources_json, case_count, usage_json
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         record_id,
@@ -110,6 +115,7 @@ class GenerationHistoryStore:
                         None,
                         "[]",
                         0,
+                        usage_json,
                     ),
                 )
                 connection.commit()
@@ -136,7 +142,7 @@ class GenerationHistoryStore:
                 f"""
                 SELECT id, created_at, request_id, status, description, duration_ms,
                        model, attempts, retrieved_chunks, retrieved_sources_json,
-                       case_count, error
+                       case_count, error, usage_json
                 FROM generation_records
                 {where}
                 ORDER BY created_at DESC
@@ -155,7 +161,7 @@ class GenerationHistoryStore:
                 """
                 SELECT id, created_at, request_id, status, description, duration_ms,
                        model, attempts, retrieved_chunks, retrieved_sources_json,
-                       case_count, error, request_json, response_json
+                       case_count, error, request_json, response_json, usage_json
                 FROM generation_records
                 WHERE id = ?
                 """,
@@ -200,9 +206,16 @@ class GenerationHistoryStore:
                         attempts INTEGER,
                         retrieved_chunks INTEGER,
                         retrieved_sources_json TEXT NOT NULL,
-                        case_count INTEGER NOT NULL
+                        case_count INTEGER NOT NULL,
+                        usage_json TEXT NOT NULL DEFAULT '{}'
                     )
                     """
+                )
+                _ensure_column(
+                    connection,
+                    table="generation_records",
+                    column="usage_json",
+                    definition="TEXT NOT NULL DEFAULT '{}'",
                 )
                 connection.execute(
                     """
@@ -246,6 +259,30 @@ def _json_loads_list(raw: str) -> list[str]:
     return [str(item) for item in value]
 
 
+def _usage_from_raw(raw: str | None) -> GenerationUsage:
+    if not raw:
+        return GenerationUsage()
+    try:
+        return GenerationUsage.model_validate(json.loads(raw))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return GenerationUsage()
+
+
+def _ensure_column(
+    connection: sqlite3.Connection,
+    *,
+    table: str,
+    column: str,
+    definition: str,
+) -> None:
+    columns = {
+        row["name"]
+        for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
+    }
+    if column not in columns:
+        connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
 def _summary_from_row(row: sqlite3.Row) -> GenerationRecordSummary:
     return GenerationRecordSummary(
         id=row["id"],
@@ -260,4 +297,5 @@ def _summary_from_row(row: sqlite3.Row) -> GenerationRecordSummary:
         retrieved_sources=_json_loads_list(row["retrieved_sources_json"]),
         case_count=row["case_count"],
         error=row["error"],
+        usage=_usage_from_raw(row["usage_json"]),
     )

@@ -75,6 +75,9 @@ def test_generate_success_with_context_and_metadata() -> None:
     assert response.metadata.retrieved_chunks == 1
     assert response.metadata.retrieved_sources == ["knowledge_export/api/auth_permissions.md"]
     assert response.metadata.prompt_version == "test-case-generation-v1"
+    assert response.metadata.usage.prompt_characters > 0
+    assert response.metadata.usage.completion_characters > 0
+    assert response.metadata.usage.total_tokens_estimate > 0
     assert response.retrieved_context == [context]
 
 
@@ -107,6 +110,8 @@ def test_generate_retries_after_validation_error() -> None:
     )
 
     assert response.metadata.attempts == 2
+    assert response.metadata.usage.prompt_characters > 0
+    assert response.metadata.usage.completion_characters > 0
     assert response.cases[0].title == "修复后的用例"
     assert "上一次输出没有通过后端校验" in llm.messages[1][1]["content"]
 
@@ -154,15 +159,21 @@ def test_generate_deduplicates_titles_and_reorders_ids() -> None:
 def test_generate_raises_after_retries_are_exhausted() -> None:
     llm = FakeLLM([{"cases": [{"title": "缺少字段"}]}, {"cases": [{"title": "仍缺少字段"}]}])
 
-    with pytest.raises(OutputValidationError):
+    with pytest.raises(OutputValidationError) as error:
         _generator(llm, retries=1).generate(GenerateRequest(description="生成登录测试用例"))
+
+    assert error.value.usage.prompt_characters > 0
+    assert error.value.usage.completion_characters > 0
 
 
 def test_generate_propagates_llm_errors() -> None:
     llm = FakeLLM([LLMError("upstream failed")])
 
-    with pytest.raises(LLMError):
+    with pytest.raises(LLMError) as error:
         _generator(llm).generate(GenerateRequest(description="生成登录测试用例"))
+
+    assert error.value.usage.prompt_characters > 0
+    assert error.value.usage.completion_characters == 0
 
 
 def test_generate_handles_empty_rag_results() -> None:

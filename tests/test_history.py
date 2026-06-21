@@ -5,6 +5,7 @@ from app.models.test_case import (
     GenerateRequest,
     GenerateResponse,
     GenerationMetadata,
+    GenerationUsage,
     TestCase as CaseModel,
     TestCaseType as CaseType,
 )
@@ -38,6 +39,16 @@ def _response() -> GenerateResponse:
             retrieved_chunks=1,
             retrieved_sources=["knowledge_export/api/auth_permissions.md"],
             prompt_version="test-case-generation-v1",
+            usage=GenerationUsage(
+                prompt_characters=100,
+                completion_characters=40,
+                total_characters=140,
+                prompt_tokens_estimate=50,
+                completion_tokens_estimate=20,
+                total_tokens_estimate=70,
+                estimated_cost=0.001,
+                currency="CNY",
+            ),
         ),
     )
 
@@ -63,10 +74,13 @@ def test_generation_history_records_success_and_detail(tmp_path: Path) -> None:
     assert records[0].request_id == "req-001"
     assert records[0].case_count == 1
     assert records[0].retrieved_sources == ["knowledge_export/api/auth_permissions.md"]
+    assert records[0].usage.total_tokens_estimate == 70
+    assert records[0].usage.estimated_cost == 0.001
     assert detail is not None
     assert detail.request.description == "生成 JWT 登录测试用例"
     assert detail.response is not None
     assert detail.response.cases[0].title == "JWT 登录成功"
+    assert detail.usage.total_characters == 140
     assert detail.quality is not None
     assert detail.quality.case_count == 1
     assert detail.quality.knowledge_grounded is True
@@ -83,6 +97,12 @@ def test_generation_history_records_failure_and_filters_by_status(tmp_path: Path
         "upstream failed",
         duration_ms=50,
         request_id="req-failed",
+        usage=GenerationUsage(
+            prompt_characters=80,
+            total_characters=80,
+            prompt_tokens_estimate=40,
+            total_tokens_estimate=40,
+        ),
     )
 
     failed_records = store.list_records(status="failed")
@@ -90,10 +110,12 @@ def test_generation_history_records_failure_and_filters_by_status(tmp_path: Path
 
     assert [record.status for record in failed_records] == ["failed"]
     assert failed_records[0].error == "upstream failed"
+    assert failed_records[0].usage.prompt_tokens_estimate == 40
     assert detail is not None
     assert detail.status == "failed"
     assert detail.response is None
     assert detail.quality is None
+    assert detail.usage.total_tokens_estimate == 40
     assert detail.error == "upstream failed"
 
 

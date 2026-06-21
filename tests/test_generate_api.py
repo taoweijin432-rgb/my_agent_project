@@ -56,8 +56,8 @@ class FakeHistoryStore:
         self.successes.append((request, response, duration_ms, request_id))
         return "record-success"
 
-    def record_failure(self, request, error, *, duration_ms, request_id=None):
-        self.failures.append((request, error, duration_ms, request_id))
+    def record_failure(self, request, error, *, duration_ms, request_id=None, usage=None):
+        self.failures.append((request, error, duration_ms, request_id, usage))
         return "record-failed"
 
     def list_records(self, *, limit=20, offset=0, status=None):
@@ -116,6 +116,7 @@ def test_generate_api_success(monkeypatch, fake_history_store) -> None:
         "knowledge_export/api/auth_permissions.md"
     ]
     assert payload["metadata"]["prompt_version"] == "test-case-generation-v1"
+    assert payload["metadata"]["usage"]["total_tokens_estimate"] >= 0
     assert generator.requests[0].description == "生成 JWT 登录测试用例"
     assert len(fake_history_store.successes) == 1
     assert fake_history_store.successes[0][0].description == "生成 JWT 登录测试用例"
@@ -180,4 +181,5 @@ def test_generation_record_list_and_detail(fake_history_store) -> None:
     assert detail.status_code == 200
     assert detail.json()["request"]["description"] == "生成 JWT 登录测试用例"
     assert detail.json()["response"]["cases"][0]["title"] == "JWT 登录成功"
+    assert detail.json()["usage"]["total_tokens_estimate"] == 0
     assert missing.status_code == 404

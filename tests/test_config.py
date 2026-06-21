@@ -46,11 +46,27 @@ def test_settings_disables_credentials_when_cors_origin_is_wildcard(monkeypatch)
 def test_settings_falls_back_for_invalid_llm_numeric_values(monkeypatch) -> None:
     monkeypatch.setenv("LLM_MAX_RETRIES", "-1")
     monkeypatch.setenv("LLM_TIMEOUT_SECONDS", "0")
+    monkeypatch.setenv("LLM_PROMPT_PRICE_PER_1K_TOKENS", "-1")
+    monkeypatch.setenv("LLM_COMPLETION_PRICE_PER_1K_TOKENS", "invalid")
 
     settings = get_settings()
 
     assert settings.llm_max_retries == 2
     assert settings.llm_timeout_seconds == 60
+    assert settings.llm_prompt_price_per_1k_tokens == 0
+    assert settings.llm_completion_price_per_1k_tokens == 0
+
+
+def test_settings_reads_llm_cost_configuration(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_PROMPT_PRICE_PER_1K_TOKENS", "0.01")
+    monkeypatch.setenv("LLM_COMPLETION_PRICE_PER_1K_TOKENS", "0.02")
+    monkeypatch.setenv("LLM_COST_CURRENCY", "CNY")
+
+    settings = get_settings()
+
+    assert settings.llm_prompt_price_per_1k_tokens == 0.01
+    assert settings.llm_completion_price_per_1k_tokens == 0.02
+    assert settings.llm_cost_currency == "CNY"
 
 
 def test_settings_reads_embedding_configuration(monkeypatch) -> None:

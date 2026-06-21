@@ -230,6 +230,8 @@ DELETE /api/v1/knowledge/documents?source=knowledge/prd/login.md
 
 生成记录落库后，历史详情会基于请求和响应计算一份本地质量报告。评分维度包括用例数量、标题重复率、目标类型覆盖、步骤/预期完整度和知识库 grounding。该评分用于回放和筛选，不会调用大模型，也不替代人工验收。
 
+生成 metadata 和历史记录还包含 `usage`。当前 usage 通过字符数启发式估算 token，用于成本趋势和滥用排查；如果配置每千 token 单价，会额外返回估算费用。该值不等同于模型供应商账单。
+
 ## 8. RAG 是怎么工作的
 
 RAG 相关代码在 `app/services/rag.py`。
@@ -282,6 +284,9 @@ EMBEDDING_DEVICE
 EMBEDDING_LOCAL_FILES_ONLY
 LLM_MAX_RETRIES
 LLM_TIMEOUT_SECONDS
+LLM_PROMPT_PRICE_PER_1K_TOKENS
+LLM_COMPLETION_PRICE_PER_1K_TOKENS
+LLM_COST_CURRENCY
 RATE_LIMIT_ENABLED
 RATE_LIMIT_REQUESTS
 RATE_LIMIT_WINDOW_SECONDS

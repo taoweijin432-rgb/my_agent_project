@@ -30,6 +30,7 @@
 | ISSUE-015 | medium | done | 生成历史缺少质量评分，难以筛选和回放低质量结果 |
 | ISSUE-016 | high | done | 生产环境缺少启动前配置校验，可能带不安全默认值上线 |
 | ISSUE-017 | medium | done | 缺少可直接复用的生产运行入口和容器健康检查 |
+| ISSUE-018 | medium | done | 缺少 LLM 用量与估算成本统计，难以做费用治理 |
 
 ## 问题详情
 
@@ -207,9 +208,19 @@
 - 修复：新增 `.env.runtime.example`、`docker-compose.yml`，Dockerfile 增加 `/health` 健康检查；Compose 挂载 `data/` 和 `.model_cache/huggingface`，并使用 `.env.runtime` 作为本机运行配置。
 - 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `66 passed, 3 warnings`。
 
+### ISSUE-018 缺少 LLM 用量与估算成本统计，难以做费用治理
+
+- 严重级别：`medium`
+- 状态：`done`
+- 位置：`app/services/usage.py`、`app/services/generator.py`、`app/services/history.py`、`app/models/test_case.py`
+- 影响：此前历史记录包含模型、attempts、耗时和成功/失败，但没有 prompt/output 字符数、估算 token 和估算费用。后续难以做成本趋势、滥用排查和调用治理。
+- 建议：在不调用真实 LLM 的前提下，先做本地估算统计；如果配置每千 token 单价，则返回估算费用。后续可替换为供应商真实 usage 字段或 tokenizer。
+- 修复：新增 `GenerationUsage` 和本地 usage 估算服务；生成成功时写入 `metadata.usage`，历史列表和详情返回 `usage`；生成失败时尽量记录已产生的 prompt/output 估算；新增 `LLM_PROMPT_PRICE_PER_1K_TOKENS`、`LLM_COMPLETION_PRICE_PER_1K_TOKENS`、`LLM_COST_CURRENCY` 配置。
+- 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `70 passed, 3 warnings`。
+
 ## 本次检查记录
 
 - 已读：`README.md`、`docs/project-guide.md`、`requirements.txt`、核心 `app/` 模块、`scripts/`、`tests/`。
 - 已运行：`.\.venv\Scripts\python.exe -m pytest -q`
-- 结果：`66 passed, 3 warnings`
+- 结果：`70 passed, 3 warnings`
 - 限制：已完成健康检查和一次真实生成烟测；当前目录已初始化 Git，并已创建首次提交。

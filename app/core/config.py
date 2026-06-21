@@ -63,6 +63,18 @@ def _get_int(value: str | None, default: int, *, minimum: int | None = None) -> 
     return parsed
 
 
+def _get_float(value: str | None, default: float, *, minimum: float | None = None) -> float:
+    if value is None:
+        return default
+    try:
+        parsed = float(value)
+    except ValueError:
+        return default
+    if minimum is not None and parsed < minimum:
+        return default
+    return parsed
+
+
 def _get_bool(value: str | None, default: bool) -> bool:
     if value is None:
         return default
@@ -97,6 +109,9 @@ class Settings:
     embedding_local_files_only: bool = False
     llm_timeout_seconds: int = 60
     llm_max_retries: int = 2
+    llm_prompt_price_per_1k_tokens: float = 0.0
+    llm_completion_price_per_1k_tokens: float = 0.0
+    llm_cost_currency: str = "CNY"
     rate_limit_enabled: bool = True
     rate_limit_requests: int = 60
     rate_limit_window_seconds: int = 60
@@ -206,6 +221,22 @@ def get_settings() -> Settings:
             2,
             minimum=0,
         ),
+        llm_prompt_price_per_1k_tokens=_get_float(
+            _get_config_value(legacy, "LLM_PROMPT_PRICE_PER_1K_TOKENS"),
+            0.0,
+            minimum=0.0,
+        ),
+        llm_completion_price_per_1k_tokens=_get_float(
+            _get_config_value(legacy, "LLM_COMPLETION_PRICE_PER_1K_TOKENS"),
+            0.0,
+            minimum=0.0,
+        ),
+        llm_cost_currency=_get_config_value(
+            legacy,
+            "LLM_COST_CURRENCY",
+            default="CNY",
+        )
+        or "CNY",
         rate_limit_enabled=_get_bool(
             _get_config_value(legacy, "RATE_LIMIT_ENABLED"),
             True,

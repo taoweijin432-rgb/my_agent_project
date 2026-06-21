@@ -242,6 +242,7 @@ def _record_generation_failure(
             str(exc),
             duration_ms=duration_ms,
             request_id=request_id,
+            usage=getattr(exc, "usage", None),
         )
     except Exception:
         logger.exception("failed to persist generation failure record")

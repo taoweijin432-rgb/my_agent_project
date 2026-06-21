@@ -90,6 +90,9 @@ EMBEDDING_DEVICE
 EMBEDDING_LOCAL_FILES_ONLY
 LLM_MAX_RETRIES
 LLM_TIMEOUT_SECONDS
+LLM_PROMPT_PRICE_PER_1K_TOKENS
+LLM_COMPLETION_PRICE_PER_1K_TOKENS
+LLM_COST_CURRENCY
 RATE_LIMIT_ENABLED
 RATE_LIMIT_REQUESTS
 RATE_LIMIT_WINDOW_SECONDS
@@ -228,6 +231,8 @@ curl -X GET "http://127.0.0.1:8000/api/v1/generation-records?limit=20&offset=0" 
 返回的历史摘要包含 `id`、`created_at`、`status`、`description`、`case_count`、`duration_ms`、`model`、`retrieved_sources` 等字段；详情接口会额外返回原始请求、生成响应和 `quality` 质量报告。
 
 `quality` 是本地规则评分，不会调用大模型。评分维度包括用例数量、标题重复率、目标类型覆盖、步骤/预期完整度、是否有知识库召回来源。它适合用于历史回放、质量趋势和人工审核辅助，不等同于最终验收结论。
+
+生成响应和历史记录还会返回 `usage`。当前 usage 是本地估算值，包含 prompt/output 字符数、估算 token 数和可选估算费用。默认不计算费用；如果配置 `LLM_PROMPT_PRICE_PER_1K_TOKENS` 与 `LLM_COMPLETION_PRICE_PER_1K_TOKENS`，服务会按每千 token 单价计算 `estimated_cost`。
 
 ## 集成方式
 

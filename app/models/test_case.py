@@ -105,12 +105,24 @@ class KnowledgeChunk(BaseModel):
     tags: list[str] = Field(default_factory=list)
 
 
+class GenerationUsage(BaseModel):
+    prompt_characters: int = 0
+    completion_characters: int = 0
+    total_characters: int = 0
+    prompt_tokens_estimate: int = 0
+    completion_tokens_estimate: int = 0
+    total_tokens_estimate: int = 0
+    estimated_cost: float | None = None
+    currency: str | None = None
+
+
 class GenerationMetadata(BaseModel):
     model: str
     attempts: int
     retrieved_chunks: int
     retrieved_sources: list[str] = Field(default_factory=list)
     prompt_version: str = "test-case-generation-v1"
+    usage: GenerationUsage = Field(default_factory=GenerationUsage)
 
 
 class GenerateRequest(BaseModel):
@@ -142,6 +154,7 @@ class GenerationRecordSummary(BaseModel):
     retrieved_sources: list[str] = Field(default_factory=list)
     case_count: int
     error: str | None = None
+    usage: GenerationUsage = Field(default_factory=GenerationUsage)
 
 
 class GenerationQualityReport(BaseModel):
