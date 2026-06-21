@@ -1,6 +1,6 @@
 # 项目问题跟踪
 
-最后更新：2026-06-21
+最后更新：2026-06-22
 
 ## 维护规则
 
@@ -38,6 +38,9 @@
 | ISSUE-023 | medium | done | Agent 缺少成本和质量门控，无法在高成本或低质量场景停止自动流程 |
 | ISSUE-024 | medium | done | 门控失败响应缺少结构化 human-in-the-loop 信息，调用方难以接审批流 |
 | ISSUE-025 | medium | done | 门控事件未持久化为待处理视图，人工介入缺少查询入口 |
+| ISSUE-026 | medium | done | 门控事件缺少处理闭环，人工审批结果无法落库和审计 |
+| ISSUE-027 | medium | done | 同步生成接口阻塞时间长，缺少异步任务队列和背压能力 |
+| ISSUE-028 | low | done | 缺少封版检查清单和架构基线，后续升级缺少稳定参照 |
 
 ## 问题详情
 
@@ -314,6 +317,16 @@
 - 建议：保留同步接口，同时增加异步提交、任务查询和任务列表接口；worker 后台复用原有生成链路，避免绕过质量门控和历史记录；用最大 worker 数控制真实并发，用最大队列长度防止内存无限堆积。
 - 修复：新增进程内 `InMemoryGenerationJobQueue`；新增 `GenerationJobDetail`、`GenerationJobSummary`、`GenerationJobError` 和 `GenerationJobListResponse`；新增 `POST /api/v1/test-cases/generation-jobs`、`GET /api/v1/test-cases/generation-jobs`、`GET /api/v1/test-cases/generation-jobs/{job_id}`；新增 `GENERATION_JOB_MAX_WORKERS`、`GENERATION_JOB_MAX_QUEUE_SIZE`、`GENERATION_JOB_RETENTION_SECONDS` 配置；队列满时返回 429。
 - 剩余风险：当前队列是单进程内存实现，适合单机和受控环境；多进程或多实例生产部署需要替换为 Redis/Celery/RQ 等外部队列，否则任务状态不会跨进程共享。
+- 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `93 passed, 3 warnings`。
+
+### ISSUE-028 缺少封版检查清单和架构基线，后续升级缺少稳定参照
+
+- 严重级别：`low`
+- 状态：`done`
+- 位置：`docs/release-checklist.md`、`docs/architecture-baseline.md`、`README.md`、`docs/agent-architecture.md`
+- 影响：项目已经具备阶段性封版条件，但缺少明确的封版范围、验收标准、已知限制和后续升级边界。继续引入 Redis、PostgreSQL 或 LangGraph 时，容易把基线能力、生产最终态和升级实验混在一起。
+- 建议：新增封版检查清单和架构基线文档，固定当前可交付范围、不可宣称的能力、必须验证项和后续升级顺序。
+- 修复：新增 `docs/release-checklist.md` 定义 `v0.2-async-hitl-baseline` 封版范围、验收标准、已知限制和升级优先级；新增 `docs/architecture-baseline.md` 固定当前分层、数据流、记忆架构、工作流节点、生产化能力和升级边界；README 与 Agent 架构文档增加入口。
 - 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `93 passed, 3 warnings`。
 
 ## 本次检查记录

@@ -5,6 +5,8 @@
 项目理解文档见 [docs/project-guide.md](docs/project-guide.md)。
 部署与 GitHub 发布说明见 [docs/deployment.md](docs/deployment.md)。
 Agent 架构与面试技术点见 [docs/agent-architecture.md](docs/agent-architecture.md)。
+封版检查清单见 [docs/release-checklist.md](docs/release-checklist.md)。
+当前架构基线见 [docs/architecture-baseline.md](docs/architecture-baseline.md)。
 
 ## 功能
 

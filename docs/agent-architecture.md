@@ -525,3 +525,5 @@ Agent 不能只看“能不能生成”，要评估多个层面。
 - Exporter Tool：导出和平台适配。
 
 不要为了框架而框架。真正有价值的是：状态清晰、节点可测、失败可恢复、成本可控、结果可评估。
+
+封版后的升级应以 [architecture-baseline.md](architecture-baseline.md) 作为对照基线，以 [release-checklist.md](release-checklist.md) 作为交付检查清单。后续引入 Redis 队列、PostgreSQL 或 LangGraph 时，应优先保持现有 API 语义、状态字段和 workflow trace 可观测输出稳定。
