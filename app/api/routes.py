@@ -206,6 +206,19 @@ def list_generation_records(
 
 
 @router.get(
+    "/generation-gates",
+    response_model=GenerationRecordListResponse,
+    tags=["history"],
+)
+def list_generation_gates(
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+) -> GenerationRecordListResponse:
+    records = _history_store().list_gate_records(limit=limit, offset=offset)
+    return GenerationRecordListResponse(records=records, limit=limit, offset=offset)
+
+
+@router.get(
     "/generation-records/{record_id}",
     response_model=GenerationRecordDetail,
     tags=["history"],
@@ -250,6 +263,7 @@ def _record_generation_failure(
             duration_ms=duration_ms,
             request_id=request_id,
             usage=getattr(exc, "usage", None),
+            gate=exc.to_detail() if isinstance(exc, GenerationGateError) else None,
         )
     except Exception:
         logger.exception("failed to persist generation failure record")

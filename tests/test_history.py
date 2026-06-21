@@ -4,6 +4,7 @@ from app.core.config import Settings
 from app.models.test_case import (
     GenerateRequest,
     GenerateResponse,
+    GenerationGateDetail,
     GenerationMetadata,
     GenerationUsage,
     TestCase as CaseModel,
@@ -103,20 +104,33 @@ def test_generation_history_records_failure_and_filters_by_status(tmp_path: Path
             prompt_tokens_estimate=40,
             total_tokens_estimate=40,
         ),
+        gate=GenerationGateDetail(
+            code="budget_exceeded",
+            gate="budget",
+            message="budget exceeded",
+            action_required="human_confirmation",
+            usage=GenerationUsage(prompt_tokens_estimate=40),
+        ),
     )
 
     failed_records = store.list_records(status="failed")
+    gate_records = store.list_gate_records()
     detail = store.get_record(failed_id or "")
 
     assert [record.status for record in failed_records] == ["failed"]
     assert failed_records[0].error == "upstream failed"
     assert failed_records[0].usage.prompt_tokens_estimate == 40
+    assert failed_records[0].gate is not None
+    assert failed_records[0].gate.code == "budget_exceeded"
+    assert [record.id for record in gate_records] == [failed_id]
     assert detail is not None
     assert detail.status == "failed"
     assert detail.response is None
     assert detail.quality is None
     assert detail.usage.total_tokens_estimate == 40
     assert detail.error == "upstream failed"
+    assert detail.gate is not None
+    assert detail.gate.action_required == "human_confirmation"
 
 
 def test_generation_history_returns_empty_when_disabled(tmp_path: Path) -> None:

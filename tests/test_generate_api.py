@@ -6,6 +6,7 @@ from app.api.routes import require_api_key
 from app.main import app
 from app.models.test_case import (
     GenerateResponse,
+    GenerationGateDetail,
     GenerationRecordDetail,
     GenerationRecordSummary,
     GenerationMetadata,
@@ -57,8 +58,17 @@ class FakeHistoryStore:
         self.successes.append((request, response, duration_ms, request_id))
         return "record-success"
 
-    def record_failure(self, request, error, *, duration_ms, request_id=None, usage=None):
-        self.failures.append((request, error, duration_ms, request_id, usage))
+    def record_failure(
+        self,
+        request,
+        error,
+        *,
+        duration_ms,
+        request_id=None,
+        usage=None,
+        gate=None,
+    ):
+        self.failures.append((request, error, duration_ms, request_id, usage, gate))
         return "record-failed"
 
     def list_records(self, *, limit=20, offset=0, status=None):
@@ -76,6 +86,10 @@ class FakeHistoryStore:
                     response=_response() if record.status == "success" else None,
                 )
         return None
+
+    def list_gate_records(self, *, limit=20, offset=0):
+        records = [record for record in self.records if record.gate is not None]
+        return records[offset : offset + limit]
 
 
 def _response() -> GenerateResponse:
@@ -158,6 +172,8 @@ def test_generate_api_error_mapping(monkeypatch, fake_history_store, error, stat
         assert detail == str(error)
     assert len(fake_history_store.failures) == 1
     assert fake_history_store.failures[0][1] == str(error)
+    if isinstance(error, GenerationBudgetExceededError):
+        assert fake_history_store.failures[0][5]["code"] == "budget_exceeded"
 
 
 def test_generation_record_list_and_detail(fake_history_store) -> None:
@@ -184,16 +200,26 @@ def test_generation_record_list_and_detail(fake_history_store) -> None:
             duration_ms=12.3,
             case_count=0,
             error="upstream failed",
+            gate=GenerationGateDetail(
+                code="quality_gate_failed",
+                gate="quality",
+                message="needs review",
+                action_required="human_review",
+            ),
         ),
     ]
 
     listing = client.get("/api/v1/generation-records?status=success")
+    gates = client.get("/api/v1/generation-gates")
     detail = client.get("/api/v1/generation-records/record-1")
     missing = client.get("/api/v1/generation-records/missing")
 
     assert listing.status_code == 200
     assert listing.json()["records"][0]["id"] == "record-1"
     assert listing.json()["records"][0]["status"] == "success"
+    assert gates.status_code == 200
+    assert gates.json()["records"][0]["id"] == "record-2"
+    assert gates.json()["records"][0]["gate"]["code"] == "quality_gate_failed"
     assert detail.status_code == 200
     assert detail.json()["request"]["description"] == "生成 JWT 登录测试用例"
     assert detail.json()["response"]["cases"][0]["title"] == "JWT 登录成功"

@@ -188,6 +188,14 @@ DELETE /api/v1/knowledge/documents?source=knowledge/prd/login.md
 
 文档管理接口用于查看当前索引里的文档清单、按 `source` 更新单个文档、按 `source` 删除文档。upsert 会替换同 `source` 的旧 chunk，并把当前文档版本号加 1。
 
+### 5.7 查询待处理门控记录
+
+```http
+GET /api/v1/generation-gates
+```
+
+该接口只返回预算门控或质量门控触发的失败记录。调用方可以用它构建人工确认、人工复核或审批列表。
+
 ## 6. 测试用例数据结构
 
 每条测试用例固定包含：
@@ -261,6 +269,8 @@ Reviewer 默认只记录审查结论，不增加 LLM 调用。显式开启 `AGEN
 ```
 
 质量门控失败时 `code=quality_gate_failed`、`gate=quality`，并会在 `review` 中返回 Reviewer 审查结论。调用方可以据此进入人工确认、人工复核或调整输入后重试。
+
+门控失败记录会持久化到生成历史中，并可通过 `GET /api/v1/generation-gates` 单独查询。历史摘要和详情都会返回 `gate` 字段。
 
 生成记录落库后，历史详情会基于请求和响应计算一份本地质量报告。评分维度包括用例数量、标题重复率、目标类型覆盖、步骤/预期完整度和知识库 grounding。该评分用于回放和筛选，不会调用大模型，也不替代人工验收。
 

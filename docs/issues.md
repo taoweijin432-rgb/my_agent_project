@@ -37,6 +37,7 @@
 | ISSUE-022 | medium | done | RAG 初次召回不足时缺少 query rewrite 条件边，容易直接带空上下文生成 |
 | ISSUE-023 | medium | done | Agent 缺少成本和质量门控，无法在高成本或低质量场景停止自动流程 |
 | ISSUE-024 | medium | done | 门控失败响应缺少结构化 human-in-the-loop 信息，调用方难以接审批流 |
+| ISSUE-025 | medium | done | 门控事件未持久化为待处理视图，人工介入缺少查询入口 |
 
 ## 问题详情
 
@@ -282,6 +283,16 @@
 - 影响：上一阶段门控失败虽然会返回 409，但 `detail` 只是字符串。前端或测试平台难以稳定判断是预算门控还是质量门控，也无法直接拿到 usage、review 和需要执行的人类动作。
 - 建议：让门控错误携带结构化 detail，包括 code、gate、message、action_required、usage 和 review。API 保留 409 状态码，但返回机器可读 JSON。
 - 修复：`GenerationGateError` 新增 `code`、`gate`、`action_required`、`usage`、`review` 和 `to_detail()`；预算门控返回 `budget_exceeded`/`human_confirmation`；质量门控返回 `quality_gate_failed`/`human_review`；API 409 的 `detail` 改为结构化 JSON。
+- 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `87 passed, 3 warnings`。
+
+### ISSUE-025 门控事件未持久化为待处理视图，人工介入缺少查询入口
+
+- 严重级别：`medium`
+- 状态：`done`
+- 位置：`app/services/history.py`、`app/api/routes.py`、`app/models/test_case.py`
+- 影响：门控失败已经能返回结构化 409，但落到历史里仍主要表现为普通失败记录。前端或测试平台要构建审批/复核列表时，需要自己从错误字符串里筛选，稳定性差。
+- 建议：将 gate detail 作为结构化字段持久化，并提供单独的待处理门控查询接口。
+- 修复：新增 `GenerationGateDetail`；SQLite 历史表新增 `gate_detail_json`；失败记录支持写入 gate detail；历史摘要和详情返回 `gate` 字段；新增 `GET /api/v1/generation-gates` 查询预算/质量门控触发的待处理记录。
 - 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `87 passed, 3 warnings`。
 
 ## 本次检查记录

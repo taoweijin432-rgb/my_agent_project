@@ -9,6 +9,7 @@ from app.core.config import PROJECT_ROOT, Settings
 from app.models.test_case import (
     GenerateRequest,
     GenerateResponse,
+    GenerationGateDetail,
     GenerationRecordDetail,
     GenerationRecordSummary,
     GenerationUsage,
@@ -81,6 +82,7 @@ class GenerationHistoryStore:
         duration_ms: float,
         request_id: str | None = None,
         usage: GenerationUsage | None = None,
+        gate: GenerationGateDetail | dict | None = None,
     ) -> str | None:
         if not self.enabled:
             return None
@@ -89,6 +91,10 @@ class GenerationHistoryStore:
         created_at = _utc_now()
         request_json = _json_dumps(request.model_dump(mode="json"))
         usage_json = _json_dumps((usage or GenerationUsage()).model_dump(mode="json"))
+        gate_detail = _gate_from_value(gate)
+        gate_detail_json = (
+            _json_dumps(gate_detail.model_dump(mode="json")) if gate_detail else None
+        )
         with self._lock:
             with self._connect() as connection:
                 connection.execute(
@@ -96,9 +102,10 @@ class GenerationHistoryStore:
                     INSERT INTO generation_records (
                         id, created_at, request_id, status, description, request_json,
                         response_json, error, duration_ms, model, attempts,
-                        retrieved_chunks, retrieved_sources_json, case_count, usage_json
+                        retrieved_chunks, retrieved_sources_json, case_count, usage_json,
+                        gate_detail_json
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         record_id,
@@ -116,6 +123,7 @@ class GenerationHistoryStore:
                         "[]",
                         0,
                         usage_json,
+                        gate_detail_json,
                     ),
                 )
                 connection.commit()
@@ -142,13 +150,37 @@ class GenerationHistoryStore:
                 f"""
                 SELECT id, created_at, request_id, status, description, duration_ms,
                        model, attempts, retrieved_chunks, retrieved_sources_json,
-                       case_count, error, usage_json
+                       case_count, error, usage_json, gate_detail_json
                 FROM generation_records
                 {where}
                 ORDER BY created_at DESC
                 LIMIT ? OFFSET ?
                 """,
                 params,
+            ).fetchall()
+        return [_summary_from_row(row) for row in rows]
+
+    def list_gate_records(
+        self,
+        *,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[GenerationRecordSummary]:
+        if not self.enabled:
+            return []
+
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, created_at, request_id, status, description, duration_ms,
+                       model, attempts, retrieved_chunks, retrieved_sources_json,
+                       case_count, error, usage_json, gate_detail_json
+                FROM generation_records
+                WHERE gate_detail_json IS NOT NULL
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                (limit, offset),
             ).fetchall()
         return [_summary_from_row(row) for row in rows]
 
@@ -161,7 +193,8 @@ class GenerationHistoryStore:
                 """
                 SELECT id, created_at, request_id, status, description, duration_ms,
                        model, attempts, retrieved_chunks, retrieved_sources_json,
-                       case_count, error, request_json, response_json, usage_json
+                       case_count, error, request_json, response_json, usage_json,
+                       gate_detail_json
                 FROM generation_records
                 WHERE id = ?
                 """,
@@ -207,7 +240,8 @@ class GenerationHistoryStore:
                         retrieved_chunks INTEGER,
                         retrieved_sources_json TEXT NOT NULL,
                         case_count INTEGER NOT NULL,
-                        usage_json TEXT NOT NULL DEFAULT '{}'
+                        usage_json TEXT NOT NULL DEFAULT '{}',
+                        gate_detail_json TEXT
                     )
                     """
                 )
@@ -216,6 +250,12 @@ class GenerationHistoryStore:
                     table="generation_records",
                     column="usage_json",
                     definition="TEXT NOT NULL DEFAULT '{}'",
+                )
+                _ensure_column(
+                    connection,
+                    table="generation_records",
+                    column="gate_detail_json",
+                    definition="TEXT",
                 )
                 connection.execute(
                     """
@@ -268,6 +308,25 @@ def _usage_from_raw(raw: str | None) -> GenerationUsage:
         return GenerationUsage()
 
 
+def _gate_from_value(
+    value: GenerationGateDetail | dict | None,
+) -> GenerationGateDetail | None:
+    if value is None:
+        return None
+    if isinstance(value, GenerationGateDetail):
+        return value
+    return GenerationGateDetail.model_validate(value)
+
+
+def _gate_from_raw(raw: str | None) -> GenerationGateDetail | None:
+    if not raw:
+        return None
+    try:
+        return GenerationGateDetail.model_validate(json.loads(raw))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
 def _ensure_column(
     connection: sqlite3.Connection,
     *,
@@ -298,4 +357,5 @@ def _summary_from_row(row: sqlite3.Row) -> GenerationRecordSummary:
         case_count=row["case_count"],
         error=row["error"],
         usage=_usage_from_raw(row["usage_json"]),
+        gate=_gate_from_raw(row["gate_detail_json"]),
     )

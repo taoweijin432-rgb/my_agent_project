@@ -125,6 +125,15 @@ class GenerationReview(BaseModel):
     retry_recommended: bool = False
 
 
+class GenerationGateDetail(BaseModel):
+    code: str
+    gate: str
+    message: str
+    action_required: str
+    usage: GenerationUsage | None = None
+    review: GenerationReview | None = None
+
+
 class WorkflowStep(BaseModel):
     name: str
     status: Literal["success", "failed", "skipped"]
@@ -173,6 +182,7 @@ class GenerationRecordSummary(BaseModel):
     case_count: int
     error: str | None = None
     usage: GenerationUsage = Field(default_factory=GenerationUsage)
+    gate: GenerationGateDetail | None = None
 
 
 class GenerationQualityReport(BaseModel):
