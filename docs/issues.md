@@ -35,6 +35,7 @@
 | ISSUE-020 | medium | done | Agent 工作流缺少显式状态对象和节点抽象，后续迁移框架成本偏高 |
 | ISSUE-021 | medium | done | 生成后缺少 Reviewer Agent 和条件修复路径，低质量结果只能事后发现 |
 | ISSUE-022 | medium | done | RAG 初次召回不足时缺少 query rewrite 条件边，容易直接带空上下文生成 |
+| ISSUE-023 | medium | done | Agent 缺少成本和质量门控，无法在高成本或低质量场景停止自动流程 |
 
 ## 问题详情
 
@@ -262,9 +263,19 @@
 - 修复：新增 `rewrite_knowledge_query()`；新增 `route_after_retrieval`、`rewrite_query`、`retrieve_rewritten_knowledge` 节点；`GenerationWorkflowState` 记录 `knowledge_query`、`rewritten_query`、`retrieval_attempts` 和检索重试决策；新增 `AGENT_QUERY_REWRITE_ENABLED`、`AGENT_QUERY_REWRITE_MIN_CHUNKS` 配置。
 - 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `83 passed, 3 warnings`。
 
+### ISSUE-023 Agent 缺少成本和质量门控，无法在高成本或低质量场景停止自动流程
+
+- 严重级别：`medium`
+- 状态：`done`
+- 位置：`app/services/generator.py`、`app/core/config.py`、`app/api/routes.py`
+- 影响：此前生成链路可以估算 usage、做 Reviewer 审查，但默认仍会继续执行或返回结果。对于超长 Prompt、高估算费用或 Reviewer 未通过的结果，系统缺少明确的“停止自动流程，交给人工确认”的边界。
+- 建议：在 LLM 调用前增加预算门控；在 Reviewer 后增加可选强质量门控。门控失败应返回明确错误码，记录失败历史和 usage，不应伪装为成功响应。
+- 修复：新增 `check_budget` 节点、`GenerationGateError`、`GenerationBudgetExceededError`、`GenerationQualityGateError`；API 将门控失败映射为 409；新增 `AGENT_BUDGET_MAX_PROMPT_TOKENS`、`AGENT_BUDGET_MAX_ESTIMATED_COST`、`AGENT_REVIEW_REQUIRE_PASS` 配置。默认阈值关闭，不改变现有行为。
+- 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `87 passed, 3 warnings`。
+
 ## 本次检查记录
 
 - 已读：`README.md`、`docs/project-guide.md`、`requirements.txt`、核心 `app/` 模块、`scripts/`、`tests/`。
 - 已运行：`.\.venv\Scripts\python.exe -m pytest -q`
-- 结果：`83 passed, 3 warnings`
+- 结果：`87 passed, 3 warnings`
 - 限制：已完成健康检查和一次真实生成烟测；当前目录已初始化 Git，并已创建首次提交。

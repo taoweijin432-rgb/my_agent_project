@@ -73,12 +73,24 @@ def test_settings_reads_agent_review_configuration(monkeypatch) -> None:
     monkeypatch.setenv("AGENT_REVIEW_ENABLED", "false")
     monkeypatch.setenv("AGENT_REVIEW_RETRY_ENABLED", "true")
     monkeypatch.setenv("AGENT_REVIEW_MIN_SCORE", "75")
+    monkeypatch.setenv("AGENT_REVIEW_REQUIRE_PASS", "true")
 
     settings = get_settings()
 
     assert settings.agent_review_enabled is False
     assert settings.agent_review_retry_enabled is True
     assert settings.agent_review_min_score == 75
+    assert settings.agent_review_require_pass is True
+
+
+def test_settings_reads_agent_budget_gate_configuration(monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_BUDGET_MAX_PROMPT_TOKENS", "1200")
+    monkeypatch.setenv("AGENT_BUDGET_MAX_ESTIMATED_COST", "0.25")
+
+    settings = get_settings()
+
+    assert settings.agent_budget_max_prompt_tokens == 1200
+    assert settings.agent_budget_max_estimated_cost == 0.25
 
 
 def test_settings_reads_agent_query_rewrite_configuration(monkeypatch) -> None:

@@ -115,8 +115,11 @@ class Settings:
     agent_review_enabled: bool = True
     agent_review_retry_enabled: bool = False
     agent_review_min_score: int = 50
+    agent_review_require_pass: bool = False
     agent_query_rewrite_enabled: bool = True
     agent_query_rewrite_min_chunks: int = 1
+    agent_budget_max_prompt_tokens: int = 0
+    agent_budget_max_estimated_cost: float = 0.0
     rate_limit_enabled: bool = True
     rate_limit_requests: int = 60
     rate_limit_window_seconds: int = 60
@@ -258,6 +261,10 @@ def get_settings() -> Settings:
                 minimum=0,
             ),
         ),
+        agent_review_require_pass=_get_bool(
+            _get_config_value(legacy, "AGENT_REVIEW_REQUIRE_PASS"),
+            False,
+        ),
         agent_query_rewrite_enabled=_get_bool(
             _get_config_value(legacy, "AGENT_QUERY_REWRITE_ENABLED"),
             True,
@@ -266,6 +273,16 @@ def get_settings() -> Settings:
             _get_config_value(legacy, "AGENT_QUERY_REWRITE_MIN_CHUNKS"),
             1,
             minimum=1,
+        ),
+        agent_budget_max_prompt_tokens=_get_int(
+            _get_config_value(legacy, "AGENT_BUDGET_MAX_PROMPT_TOKENS"),
+            0,
+            minimum=0,
+        ),
+        agent_budget_max_estimated_cost=_get_float(
+            _get_config_value(legacy, "AGENT_BUDGET_MAX_ESTIMATED_COST"),
+            0.0,
+            minimum=0.0,
         ),
         rate_limit_enabled=_get_bool(
             _get_config_value(legacy, "RATE_LIMIT_ENABLED"),

@@ -2,7 +2,12 @@ import pytest
 
 from app.core.config import Settings
 from app.models.test_case import GenerateRequest, KnowledgeChunk
-from app.services.generator import OutputValidationError, TestCaseGenerator as GeneratorService
+from app.services.generator import (
+    GenerationBudgetExceededError,
+    GenerationQualityGateError,
+    OutputValidationError,
+    TestCaseGenerator as GeneratorService,
+)
 from app.services.llm import LLMError
 
 
@@ -50,7 +55,10 @@ def _generator(
     *,
     review_retry_enabled: bool = False,
     review_min_score: int = 50,
+    review_require_pass: bool = False,
     query_rewrite_enabled: bool = True,
+    budget_max_prompt_tokens: int = 0,
+    budget_max_estimated_cost: float = 0.0,
 ) -> GeneratorService:
     return GeneratorService(
         settings=Settings(
@@ -58,7 +66,10 @@ def _generator(
             llm_max_retries=retries,
             agent_review_retry_enabled=review_retry_enabled,
             agent_review_min_score=review_min_score,
+            agent_review_require_pass=review_require_pass,
             agent_query_rewrite_enabled=query_rewrite_enabled,
+            agent_budget_max_prompt_tokens=budget_max_prompt_tokens,
+            agent_budget_max_estimated_cost=budget_max_estimated_cost,
         ),
         llm=llm,
         rag=rag or FakeRag(),
@@ -105,6 +116,7 @@ def test_generate_success_with_context_and_metadata() -> None:
         "plan_test_strategy",
     ]
     assert "call_llm" in workflow_names
+    assert "check_budget" in workflow_names
     assert "review_cases" in workflow_names
     assert "route_after_review" in workflow_names
     assert "estimate_usage" in workflow_names
@@ -160,6 +172,20 @@ def test_generate_records_unavailable_context_when_query_rewrite_is_disabled() -
 
     assert "rewrite_query" not in workflow_names
     assert route_step.summary == "decision=accept, reason=context_unavailable"
+
+
+def test_generate_stops_before_llm_when_budget_gate_fails() -> None:
+    llm = FakeLLM([{"cases": [_case("不会被调用")]}])
+
+    with pytest.raises(GenerationBudgetExceededError) as error:
+        _generator(
+            llm,
+            budget_max_prompt_tokens=1,
+        ).generate(GenerateRequest(description="生成登录测试用例", knowledge_top_k=0))
+
+    assert error.value.usage.prompt_tokens_estimate > 1
+    assert error.value.usage.completion_tokens_estimate == 0
+    assert llm.messages == []
 
 
 def test_generate_accepts_test_cases_alias() -> None:
@@ -243,6 +269,28 @@ def test_generate_retries_when_reviewer_requests_repair() -> None:
     assert "passed=True" in review_steps[1].summary
     assert route_steps[0].summary == "decision=retry, reason=review_feedback"
     assert "Reviewer Agent 审查未通过" in llm.messages[1][1]["content"]
+
+
+def test_generate_blocks_low_quality_result_when_quality_gate_is_required() -> None:
+    llm = FakeLLM([{"cases": [_case("只覆盖登录成功")]}])
+
+    with pytest.raises(GenerationQualityGateError) as error:
+        _generator(
+            llm,
+            review_min_score=70,
+            review_require_pass=True,
+        ).generate(
+            GenerateRequest(
+                description="生成登录测试用例",
+                max_cases=5,
+                knowledge_top_k=0,
+            )
+        )
+
+    assert error.value.usage.prompt_characters > 0
+    assert error.value.usage.completion_characters > 0
+    assert error.value.review.passed is False
+    assert "missing_target_types" in error.value.review.warnings
 
 
 def test_generate_truncates_to_max_cases() -> None:

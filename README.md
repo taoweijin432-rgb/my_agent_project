@@ -97,8 +97,11 @@ LLM_COST_CURRENCY
 AGENT_REVIEW_ENABLED
 AGENT_REVIEW_RETRY_ENABLED
 AGENT_REVIEW_MIN_SCORE
+AGENT_REVIEW_REQUIRE_PASS
 AGENT_QUERY_REWRITE_ENABLED
 AGENT_QUERY_REWRITE_MIN_CHUNKS
+AGENT_BUDGET_MAX_PROMPT_TOKENS
+AGENT_BUDGET_MAX_ESTIMATED_COST
 RATE_LIMIT_ENABLED
 RATE_LIMIT_REQUESTS
 RATE_LIMIT_WINDOW_SECONDS
@@ -241,6 +244,8 @@ curl -X GET "http://127.0.0.1:8000/api/v1/generation-records?limit=20&offset=0" 
 `quality` 是本地规则评分，不会调用大模型。评分维度包括用例数量、标题重复率、目标类型覆盖、步骤/预期完整度、是否有知识库召回来源。它适合用于历史回放、质量趋势和人工审核辅助，不等同于最终验收结论。
 
 生成链路内置 `review_cases` Reviewer 节点，成功响应的 `metadata.review` 会返回本地审查结论。默认 `AGENT_REVIEW_ENABLED=true`、`AGENT_REVIEW_RETRY_ENABLED=false`，即记录审查结果但不额外消耗 LLM 调用；如果显式开启自动重试，审查分数低于 `AGENT_REVIEW_MIN_SCORE` 时会把 Reviewer 反馈写入下一轮 Prompt。
+
+生成链路还内置门控节点。`check_budget` 会在调用 LLM 前估算 prompt token 和费用；默认 `AGENT_BUDGET_MAX_PROMPT_TOKENS=0`、`AGENT_BUDGET_MAX_ESTIMATED_COST=0` 表示不阻断。显式设置阈值后，超限请求会返回 409 并写入失败历史。`AGENT_REVIEW_REQUIRE_PASS=true` 时，Reviewer 未通过的结果不会直接返回，需要人工确认或调整输入。
 
 生成响应和历史记录还会返回 `usage`。当前 usage 是本地估算值，包含 prompt/output 字符数、估算 token 数和可选估算费用。默认不计算费用；如果配置 `LLM_PROMPT_PRICE_PER_1K_TOKENS` 与 `LLM_COMPLETION_PRICE_PER_1K_TOKENS`，服务会按每千 token 单价计算 `estimated_cost`。
 

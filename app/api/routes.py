@@ -26,7 +26,11 @@ from app.models.test_case import (
     QueryResponse,
 )
 from app.services.excel_exporter import build_excel
-from app.services.generator import OutputValidationError, TestCaseGenerator
+from app.services.generator import (
+    GenerationGateError,
+    OutputValidationError,
+    TestCaseGenerator,
+)
 from app.services.history import GenerationHistoryStore
 from app.services.llm import LLMClient, LLMError, MissingApiKeyError
 from app.services.rag import ChromaUnavailableError, RagService
@@ -100,6 +104,9 @@ def generate_test_cases(request: GenerateRequest, http_request: Request) -> Gene
     except LLMError as exc:
         _record_generation_failure(request, exc, start=start, request_id=request_id)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except GenerationGateError as exc:
+        _record_generation_failure(request, exc, start=start, request_id=request_id)
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except OutputValidationError as exc:
         _record_generation_failure(request, exc, start=start, request_id=request_id)
         raise HTTPException(status_code=502, detail=str(exc)) from exc

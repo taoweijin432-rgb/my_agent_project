@@ -16,7 +16,7 @@
 
 ## 2. 一句话流程
 
-用户输入需求描述 -> 工作流状态初始化 -> 需求分析 -> Chroma 检索相关知识 -> 召回不足时 query rewrite 并再检索 -> 测试策略规划 -> 构造 Prompt -> 调用智谱 LLM JSON Mode -> Pydantic 校验 -> 后处理 -> Reviewer 审查和条件重试 -> usage 估算和历史记录 -> 返回测试用例 JSON 或 Excel。
+用户输入需求描述 -> 工作流状态初始化 -> 需求分析 -> Chroma 检索相关知识 -> 召回不足时 query rewrite 并再检索 -> 测试策略规划 -> 构造 Prompt -> 成本预算门控 -> 调用智谱 LLM JSON Mode -> Pydantic 校验 -> 后处理 -> Reviewer 审查、质量门控和条件重试 -> usage 估算和历史记录 -> 返回测试用例 JSON 或 Excel。
 
 ## 3. 核心能力
 
@@ -228,20 +228,24 @@ DELETE /api/v1/knowledge/documents?source=knowledge/prd/login.md
 5. 如果召回不足，`rewrite_query` 扩展检索 query，并通过 `retrieve_rewritten_knowledge` 再检索一次。
 6. `plan_test_generation()` 基于需求分析和知识来源规划测试策略。
 7. `build_generation_messages()` 把需求、知识库上下文、测试策略、Few-shot 示例拼成 Prompt。
-8. `LLMClient.generate_json()` 调用智谱 `/chat/completions` 接口。
-9. 后端解析 JSON。
-10. `TestCaseCollection.model_validate()` 用 Pydantic 校验字段。
-11. 如果校验失败，把错误信息放回 Prompt 自动重试。
-12. 校验成功后后处理用例。
-13. `review_cases` 复用本地质量评分做 Reviewer 审查。
-14. `route_after_review` 根据配置决定接受结果，或把审查反馈写入下一轮 Prompt。
-15. 估算 usage，并返回 `GenerateResponse`。
+8. `check_budget` 在调用 LLM 前估算 prompt token 和费用，超限时返回 409。
+9. `LLMClient.generate_json()` 调用智谱 `/chat/completions` 接口。
+10. 后端解析 JSON。
+11. `TestCaseCollection.model_validate()` 用 Pydantic 校验字段。
+12. 如果校验失败，把错误信息放回 Prompt 自动重试。
+13. 校验成功后后处理用例。
+14. `review_cases` 复用本地质量评分做 Reviewer 审查。
+15. `route_after_review` 根据配置决定接受结果，或把审查反馈写入下一轮 Prompt。
+16. 如果 `AGENT_REVIEW_REQUIRE_PASS=true`，`check_quality_gate` 会阻断 Reviewer 未通过的结果。
+17. 估算 usage，并返回 `GenerateResponse`。
 
 每次生成都会创建一个 `GenerationWorkflowState` 作为短期记忆。工作流节点通过这个 state 读写需求分析、RAG 上下文、重写后的检索 query、测试策略、Prompt、LLM payload、校验结果、Reviewer 结论和 usage。每次成功生成都会在 `metadata.workflow_steps` 中返回节点轨迹，包括节点名、状态、摘要和耗时。
 
 query rewrite 是本地确定性逻辑，不调用 LLM。默认 `AGENT_QUERY_REWRITE_ENABLED=true`，当初次召回少于 `AGENT_QUERY_REWRITE_MIN_CHUNKS` 时触发一次重检索。
 
 Reviewer 默认只记录审查结论，不增加 LLM 调用。显式开启 `AGENT_REVIEW_RETRY_ENABLED=true` 后，如果审查分数低于 `AGENT_REVIEW_MIN_SCORE`，且还有 `LLM_MAX_RETRIES` 预算，系统会把 Reviewer 反馈注入下一轮 Prompt。
+
+预算门控默认不阻断。设置 `AGENT_BUDGET_MAX_PROMPT_TOKENS` 或 `AGENT_BUDGET_MAX_ESTIMATED_COST` 后，超限请求会在调用 LLM 前返回 409，并把估算 usage 写入失败历史。质量门控默认不阻断；设置 `AGENT_REVIEW_REQUIRE_PASS=true` 后，Reviewer 未通过的结果会返回 409，交给人工确认或调整需求后重试。
 
 生成记录落库后，历史详情会基于请求和响应计算一份本地质量报告。评分维度包括用例数量、标题重复率、目标类型覆盖、步骤/预期完整度和知识库 grounding。该评分用于回放和筛选，不会调用大模型，也不替代人工验收。
 
@@ -305,8 +309,11 @@ LLM_COST_CURRENCY
 AGENT_REVIEW_ENABLED
 AGENT_REVIEW_RETRY_ENABLED
 AGENT_REVIEW_MIN_SCORE
+AGENT_REVIEW_REQUIRE_PASS
 AGENT_QUERY_REWRITE_ENABLED
 AGENT_QUERY_REWRITE_MIN_CHUNKS
+AGENT_BUDGET_MAX_PROMPT_TOKENS
+AGENT_BUDGET_MAX_ESTIMATED_COST
 RATE_LIMIT_ENABLED
 RATE_LIMIT_REQUESTS
 RATE_LIMIT_WINDOW_SECONDS

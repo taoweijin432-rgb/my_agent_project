@@ -12,7 +12,7 @@ from app.models.test_case import (
     TestCase as CaseModel,
     TestCaseType as CaseType,
 )
-from app.services.generator import OutputValidationError
+from app.services.generator import GenerationBudgetExceededError, OutputValidationError
 from app.services.llm import LLMError, MissingApiKeyError
 
 
@@ -127,6 +127,7 @@ def test_generate_api_success(monkeypatch, fake_history_store) -> None:
     [
         (MissingApiKeyError("missing key"), 503),
         (LLMError("upstream failed"), 502),
+        (GenerationBudgetExceededError("budget exceeded"), 409),
         (OutputValidationError("invalid output"), 502),
     ],
 )

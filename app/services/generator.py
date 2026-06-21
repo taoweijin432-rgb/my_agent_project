@@ -37,6 +37,26 @@ class OutputValidationError(RuntimeError):
         self.usage = usage
 
 
+class GenerationGateError(RuntimeError):
+    """Raised when a workflow gate requires human intervention."""
+
+    def __init__(self, message: str, *, usage=None):
+        super().__init__(message)
+        self.usage = usage
+
+
+class GenerationBudgetExceededError(GenerationGateError):
+    """Raised before LLM invocation when the prompt exceeds configured limits."""
+
+
+class GenerationQualityGateError(GenerationGateError):
+    """Raised when Reviewer output is below a required quality threshold."""
+
+    def __init__(self, message: str, *, usage=None, review=None):
+        super().__init__(message, usage=usage)
+        self.review = review
+
+
 class TestCaseGenerator:
     def __init__(self, settings: Settings, llm: LLMClient, rag: RagService):
         self.settings = settings
@@ -119,6 +139,17 @@ class TestCaseGenerator:
                 ),
                 state,
             )
+            workflow.run_node(
+                WorkflowNode(
+                    name="check_budget",
+                    action=lambda current: _check_budget_node(
+                        current,
+                        self.settings,
+                    ),
+                    summary=_summarize_budget_gate,
+                ),
+                state,
+            )
             try:
                 workflow.run_node(
                     WorkflowNode(
@@ -184,6 +215,18 @@ class TestCaseGenerator:
                     )
                     if state.retry_requested:
                         continue
+                    if self.settings.agent_review_require_pass:
+                        workflow.run_node(
+                            WorkflowNode(
+                                name="check_quality_gate",
+                                action=lambda current: _check_quality_gate_node(
+                                    current,
+                                    self.settings,
+                                ),
+                                summary=_summarize_quality_gate,
+                            ),
+                            state,
+                        )
                 workflow.run_node(
                     WorkflowNode(
                         name="estimate_usage",
@@ -303,6 +346,48 @@ def _build_prompt_node(state: GenerationWorkflowState) -> None:
     state.prompt_messages.append(messages)
 
 
+def _check_budget_node(
+    state: GenerationWorkflowState,
+    settings: Settings,
+) -> None:
+    usage = estimate_generation_usage(
+        settings,
+        state.prompt_messages,
+        state.completion_payloads,
+    )
+    state.usage = usage
+    prompt_limit = settings.agent_budget_max_prompt_tokens
+    if prompt_limit > 0 and usage.prompt_tokens_estimate > prompt_limit:
+        raise GenerationBudgetExceededError(
+            "Generation requires human confirmation: "
+            f"prompt_tokens_estimate={usage.prompt_tokens_estimate} "
+            f"exceeds AGENT_BUDGET_MAX_PROMPT_TOKENS={prompt_limit}.",
+            usage=usage,
+        )
+
+    cost_limit = settings.agent_budget_max_estimated_cost
+    if (
+        cost_limit > 0
+        and usage.estimated_cost is not None
+        and usage.estimated_cost > cost_limit
+    ):
+        raise GenerationBudgetExceededError(
+            "Generation requires human confirmation: "
+            f"estimated_cost={usage.estimated_cost} exceeds "
+            f"AGENT_BUDGET_MAX_ESTIMATED_COST={cost_limit}.",
+            usage=usage,
+        )
+
+
+def _summarize_budget_gate(state: GenerationWorkflowState) -> str:
+    usage = _require_value(state.usage, "usage")
+    return (
+        "decision=accept, "
+        f"prompt_tokens_estimate={usage.prompt_tokens_estimate}, "
+        f"estimated_cost={usage.estimated_cost}"
+    )
+
+
 def _call_llm_node(state: GenerationWorkflowState, llm: LLMClient) -> None:
     if not state.prompt_messages:
         raise RuntimeError("prompt_messages is required before calling LLM")
@@ -371,6 +456,33 @@ def _summarize_review_route(state: GenerationWorkflowState) -> str:
     if review.retry_recommended:
         return "decision=accept, reason=retry_disabled_or_budget_exhausted"
     return "decision=accept, reason=review_passed"
+
+
+def _check_quality_gate_node(
+    state: GenerationWorkflowState,
+    settings: Settings,
+) -> None:
+    review = _require_value(state.review, "review")
+    if review.passed:
+        return
+    usage = estimate_generation_usage(
+        settings,
+        state.prompt_messages,
+        state.completion_payloads,
+    )
+    state.usage = usage
+    raise GenerationQualityGateError(
+        "Generation requires human review: "
+        f"review_score={review.score}, grade={review.grade}, "
+        f"warnings={','.join(review.warnings) or 'none'}.",
+        usage=usage,
+        review=review,
+    )
+
+
+def _summarize_quality_gate(state: GenerationWorkflowState) -> str:
+    review = _require_value(state.review, "review")
+    return f"decision=accept, review_score={review.score}, grade={review.grade}"
 
 
 def _estimate_usage_node(
