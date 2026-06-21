@@ -4,6 +4,7 @@ from typing import Any, Callable, Generic, TypeVar
 
 from app.models.test_case import (
     GenerateRequest,
+    GenerationReview,
     GenerationUsage,
     KnowledgeChunk,
     TestCase,
@@ -54,6 +55,8 @@ class GenerationWorkflowState:
     payload: dict[str, Any] | None = None
     cases: list[TestCase] = field(default_factory=list)
     usage: GenerationUsage | None = None
+    review: GenerationReview | None = None
+    retry_requested: bool = False
     last_error: Exception | None = None
 
 

@@ -21,6 +21,7 @@ from app.services.llm import LLMClient
 from app.services.llm import LLMError
 from app.services.prompt import PROMPT_TEMPLATE_VERSION, build_generation_messages
 from app.services.rag import RagService
+from app.services.reviewer import build_review_feedback, review_generated_cases
 from app.services.usage import estimate_generation_usage
 
 
@@ -70,8 +71,11 @@ class TestCaseGenerator:
             state,
         )
 
+        max_attempts = self.settings.llm_max_retries + 1
         for attempt in range(1, self.settings.llm_max_retries + 2):
             state.attempt = attempt
+            state.retry_requested = False
+            state.review = None
             workflow.run_node(
                 WorkflowNode(
                     name="build_prompt",
@@ -122,6 +126,32 @@ class TestCaseGenerator:
                     ),
                     state,
                 )
+                if self.settings.agent_review_enabled:
+                    workflow.run_node(
+                        WorkflowNode(
+                            name="review_cases",
+                            action=lambda current: _review_cases_node(
+                                current,
+                                self.settings,
+                            ),
+                            summary=_summarize_review,
+                        ),
+                        state,
+                    )
+                    workflow.run_node(
+                        WorkflowNode(
+                            name="route_after_review",
+                            action=lambda current: _route_after_review_node(
+                                current,
+                                self.settings,
+                                max_attempts=max_attempts,
+                            ),
+                            summary=_summarize_review_route,
+                        ),
+                        state,
+                    )
+                    if state.retry_requested:
+                        continue
                 workflow.run_node(
                     WorkflowNode(
                         name="estimate_usage",
@@ -145,6 +175,7 @@ class TestCaseGenerator:
                         retrieved_sources=_unique_sources(state.contexts),
                         prompt_version=PROMPT_TEMPLATE_VERSION,
                         usage=_require_value(state.usage, "usage"),
+                        review=state.review,
                         workflow_steps=workflow.steps,
                     ),
                     retrieved_context=state.contexts if request.include_context else [],
@@ -228,6 +259,56 @@ def _post_process_cases_node(state: GenerationWorkflowState) -> None:
         state.cases,
         max_cases=state.request.max_cases,
     )
+
+
+def _review_cases_node(
+    state: GenerationWorkflowState,
+    settings: Settings,
+) -> None:
+    state.review = review_generated_cases(
+        request=state.request,
+        cases=state.cases,
+        model=settings.zhipu_chat_model,
+        attempt=state.attempt,
+        retrieved_chunks=len(state.contexts),
+        retrieved_sources=_unique_sources(state.contexts),
+        min_score=settings.agent_review_min_score,
+    )
+
+
+def _summarize_review(state: GenerationWorkflowState) -> str:
+    review = _require_value(state.review, "review")
+    warnings = ",".join(review.warnings) or "none"
+    return (
+        f"passed={review.passed}, score={review.score}, "
+        f"grade={review.grade}, warnings={warnings}"
+    )
+
+
+def _route_after_review_node(
+    state: GenerationWorkflowState,
+    settings: Settings,
+    *,
+    max_attempts: int,
+) -> None:
+    review = _require_value(state.review, "review")
+    can_retry = state.attempt < max_attempts
+    state.retry_requested = (
+        settings.agent_review_retry_enabled
+        and review.retry_recommended
+        and can_retry
+    )
+    if state.retry_requested:
+        state.correction = build_review_feedback(review)
+
+
+def _summarize_review_route(state: GenerationWorkflowState) -> str:
+    review = _require_value(state.review, "review")
+    if state.retry_requested:
+        return "decision=retry, reason=review_feedback"
+    if review.retry_recommended:
+        return "decision=accept, reason=retry_disabled_or_budget_exhausted"
+    return "decision=accept, reason=review_passed"
 
 
 def _estimate_usage_node(

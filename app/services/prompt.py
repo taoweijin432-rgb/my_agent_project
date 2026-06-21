@@ -96,7 +96,7 @@ Few-shot 输出：
 {json.dumps(schema, ensure_ascii=False)}
 """
     if correction:
-        user_prompt += f"\n上一次输出没有通过后端校验，请修正后重新输出。校验错误：{correction}\n"
+        user_prompt += f"\n上一次输出需要修正，请根据以下反馈重新输出。反馈：{correction}\n"
 
     return [
         {"role": "system", "content": SYSTEM_PROMPT},

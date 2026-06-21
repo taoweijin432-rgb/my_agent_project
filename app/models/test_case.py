@@ -116,6 +116,15 @@ class GenerationUsage(BaseModel):
     currency: str | None = None
 
 
+class GenerationReview(BaseModel):
+    passed: bool = True
+    score: int = Field(default=0, ge=0, le=100)
+    grade: Literal["excellent", "good", "fair", "poor"] = "poor"
+    warnings: list[str] = Field(default_factory=list)
+    recommendations: list[str] = Field(default_factory=list)
+    retry_recommended: bool = False
+
+
 class WorkflowStep(BaseModel):
     name: str
     status: Literal["success", "failed", "skipped"]
@@ -130,6 +139,7 @@ class GenerationMetadata(BaseModel):
     retrieved_sources: list[str] = Field(default_factory=list)
     prompt_version: str = "test-case-generation-v1"
     usage: GenerationUsage = Field(default_factory=GenerationUsage)
+    review: GenerationReview | None = None
     workflow_steps: list[WorkflowStep] = Field(default_factory=list)
 
 

@@ -112,6 +112,9 @@ class Settings:
     llm_prompt_price_per_1k_tokens: float = 0.0
     llm_completion_price_per_1k_tokens: float = 0.0
     llm_cost_currency: str = "CNY"
+    agent_review_enabled: bool = True
+    agent_review_retry_enabled: bool = False
+    agent_review_min_score: int = 50
     rate_limit_enabled: bool = True
     rate_limit_requests: int = 60
     rate_limit_window_seconds: int = 60
@@ -237,6 +240,22 @@ def get_settings() -> Settings:
             default="CNY",
         )
         or "CNY",
+        agent_review_enabled=_get_bool(
+            _get_config_value(legacy, "AGENT_REVIEW_ENABLED"),
+            True,
+        ),
+        agent_review_retry_enabled=_get_bool(
+            _get_config_value(legacy, "AGENT_REVIEW_RETRY_ENABLED"),
+            False,
+        ),
+        agent_review_min_score=min(
+            100,
+            _get_int(
+                _get_config_value(legacy, "AGENT_REVIEW_MIN_SCORE"),
+                50,
+                minimum=0,
+            ),
+        ),
         rate_limit_enabled=_get_bool(
             _get_config_value(legacy, "RATE_LIMIT_ENABLED"),
             True,
@@ -322,6 +341,10 @@ def validate_production_settings(settings: Settings) -> list[str]:
         errors.append("RATE_LIMIT_ENABLED must be true in production.")
     if not settings.request_log_enabled:
         errors.append("REQUEST_LOG_ENABLED must be true in production.")
+    if not settings.agent_review_enabled:
+        errors.append("AGENT_REVIEW_ENABLED must be true in production.")
+    if not 0 <= settings.agent_review_min_score <= 100:
+        errors.append("AGENT_REVIEW_MIN_SCORE must be between 0 and 100.")
     if not settings.generation_history_enabled:
         errors.append("GENERATION_HISTORY_ENABLED must be true in production.")
     if settings.generation_history_db_path.strip() in {"", ":memory:"}:

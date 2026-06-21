@@ -33,6 +33,7 @@
 | ISSUE-018 | medium | done | 缺少 LLM 用量与估算成本统计，难以做费用治理 |
 | ISSUE-019 | medium | done | 生成链路缺少显式 Agent 工作流和架构讲解文档 |
 | ISSUE-020 | medium | done | Agent 工作流缺少显式状态对象和节点抽象，后续迁移框架成本偏高 |
+| ISSUE-021 | medium | done | 生成后缺少 Reviewer Agent 和条件修复路径，低质量结果只能事后发现 |
 
 ## 问题详情
 
@@ -240,9 +241,19 @@
 - 修复：新增 `GenerationWorkflowState` 承载 request、analysis、contexts、plan、attempt、prompt、payload、cases、usage 和 last_error；新增 `WorkflowNode` 与 `WorkflowRecorder.run_node()`；`TestCaseGenerator` 改为节点读写 state 的状态机形态；文档补充 state/node 与 LangGraph 映射关系。
 - 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `74 passed, 3 warnings`。
 
+### ISSUE-021 生成后缺少 Reviewer Agent 和条件修复路径，低质量结果只能事后发现
+
+- 严重级别：`medium`
+- 状态：`done`
+- 位置：`app/services/reviewer.py`、`app/services/generator.py`、`app/services/prompt.py`、`app/core/config.py`
+- 影响：此前生成成功只代表 JSON 结构通过校验，低覆盖、步骤过浅、缺少关键类型等质量问题主要依赖历史详情里的事后评分。Agent 链路缺少生成后审查和条件路由，难以表达“生成 -> 审查 -> 修复”的真实工作流。
+- 建议：在后处理后增加 Reviewer 节点，复用本地质量评分形成可解释反馈；再增加条件边，允许在显式开启时把 Reviewer 反馈写回下一轮 Prompt。
+- 修复：新增 `GenerationReview`、`review_generated_cases()` 和 `build_review_feedback()`；生成链路新增 `review_cases` 与 `route_after_review` 节点；`metadata.review` 返回审查结论；新增 `AGENT_REVIEW_ENABLED`、`AGENT_REVIEW_RETRY_ENABLED`、`AGENT_REVIEW_MIN_SCORE` 配置；默认审查开启、自动重试关闭，避免隐式增加 LLM 成本。
+- 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `78 passed, 3 warnings`。
+
 ## 本次检查记录
 
 - 已读：`README.md`、`docs/project-guide.md`、`requirements.txt`、核心 `app/` 模块、`scripts/`、`tests/`。
 - 已运行：`.\.venv\Scripts\python.exe -m pytest -q`
-- 结果：`74 passed, 3 warnings`
+- 结果：`78 passed, 3 warnings`
 - 限制：已完成健康检查和一次真实生成烟测；当前目录已初始化 Git，并已创建首次提交。

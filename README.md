@@ -94,6 +94,9 @@ LLM_TIMEOUT_SECONDS
 LLM_PROMPT_PRICE_PER_1K_TOKENS
 LLM_COMPLETION_PRICE_PER_1K_TOKENS
 LLM_COST_CURRENCY
+AGENT_REVIEW_ENABLED
+AGENT_REVIEW_RETRY_ENABLED
+AGENT_REVIEW_MIN_SCORE
 RATE_LIMIT_ENABLED
 RATE_LIMIT_REQUESTS
 RATE_LIMIT_WINDOW_SECONDS
@@ -116,7 +119,7 @@ X-API-Key: your-service-api-key
 
 生成接口默认会把请求、响应摘要、完整响应 JSON、失败原因和耗时写入 SQLite：`GENERATION_HISTORY_DB_PATH=data/app.sqlite3`。该数据库属于运行数据，已被 `.gitignore` 排除；部署时应挂载到持久化数据盘。
 
-生产环境应设置 `APP_ENV=production`。服务启动时会强制校验关键配置：真实 `APP_API_KEY`、真实 `ZHIPU_API_KEY`、HTTPS CORS 来源、非 `hash` embedding、启用本地模型文件、启用限流、启用请求日志、启用生成历史和持久化历史库路径。校验失败会直接拒绝启动。
+生产环境应设置 `APP_ENV=production`。服务启动时会强制校验关键配置：真实 `APP_API_KEY`、真实 `ZHIPU_API_KEY`、HTTPS CORS 来源、非 `hash` embedding、启用本地模型文件、启用限流、启用请求日志、启用 Agent Reviewer、启用生成历史和持久化历史库路径。校验失败会直接拒绝启动。
 
 RAG 默认使用本地 `hash` embedding，便于无模型启动。需要切换到轻量中文语义模型时，可以配置：
 
@@ -232,6 +235,8 @@ curl -X GET "http://127.0.0.1:8000/api/v1/generation-records?limit=20&offset=0" 
 返回的历史摘要包含 `id`、`created_at`、`status`、`description`、`case_count`、`duration_ms`、`model`、`retrieved_sources` 等字段；详情接口会额外返回原始请求、生成响应和 `quality` 质量报告。
 
 `quality` 是本地规则评分，不会调用大模型。评分维度包括用例数量、标题重复率、目标类型覆盖、步骤/预期完整度、是否有知识库召回来源。它适合用于历史回放、质量趋势和人工审核辅助，不等同于最终验收结论。
+
+生成链路内置 `review_cases` Reviewer 节点，成功响应的 `metadata.review` 会返回本地审查结论。默认 `AGENT_REVIEW_ENABLED=true`、`AGENT_REVIEW_RETRY_ENABLED=false`，即记录审查结果但不额外消耗 LLM 调用；如果显式开启自动重试，审查分数低于 `AGENT_REVIEW_MIN_SCORE` 时会把 Reviewer 反馈写入下一轮 Prompt。
 
 生成响应和历史记录还会返回 `usage`。当前 usage 是本地估算值，包含 prompt/output 字符数、估算 token 数和可选估算费用。默认不计算费用；如果配置 `LLM_PROMPT_PRICE_PER_1K_TOKENS` 与 `LLM_COMPLETION_PRICE_PER_1K_TOKENS`，服务会按每千 token 单价计算 `estimated_cost`。
 

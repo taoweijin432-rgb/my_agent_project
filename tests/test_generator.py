@@ -40,9 +40,21 @@ def _case(title: str, case_id: str = "TC-001", case_type: str = "functional"):
     }
 
 
-def _generator(llm: FakeLLM, rag: FakeRag | None = None, retries: int = 1) -> GeneratorService:
+def _generator(
+    llm: FakeLLM,
+    rag: FakeRag | None = None,
+    retries: int = 1,
+    *,
+    review_retry_enabled: bool = False,
+    review_min_score: int = 50,
+) -> GeneratorService:
     return GeneratorService(
-        settings=Settings(zhipu_chat_model="fake-model", llm_max_retries=retries),
+        settings=Settings(
+            zhipu_chat_model="fake-model",
+            llm_max_retries=retries,
+            agent_review_retry_enabled=review_retry_enabled,
+            agent_review_min_score=review_min_score,
+        ),
         llm=llm,
         rag=rag or FakeRag(),
     )
@@ -78,6 +90,8 @@ def test_generate_success_with_context_and_metadata() -> None:
     assert response.metadata.usage.prompt_characters > 0
     assert response.metadata.usage.completion_characters > 0
     assert response.metadata.usage.total_tokens_estimate > 0
+    assert response.metadata.review is not None
+    assert response.metadata.review.passed is True
     workflow_names = [step.name for step in response.metadata.workflow_steps]
     assert workflow_names[:3] == [
         "analyze_requirement",
@@ -85,6 +99,8 @@ def test_generate_success_with_context_and_metadata() -> None:
         "plan_test_strategy",
     ]
     assert "call_llm" in workflow_names
+    assert "review_cases" in workflow_names
+    assert "route_after_review" in workflow_names
     assert "estimate_usage" in workflow_names
     assert response.retrieved_context == [context]
 
@@ -125,7 +141,51 @@ def test_generate_retries_after_validation_error() -> None:
     ]
     assert [step.status for step in validation_steps] == ["failed", "success"]
     assert response.cases[0].title == "修复后的用例"
-    assert "上一次输出没有通过后端校验" in llm.messages[1][1]["content"]
+    assert "上一次输出需要修正" in llm.messages[1][1]["content"]
+
+
+def test_generate_retries_when_reviewer_requests_repair() -> None:
+    llm = FakeLLM(
+        [
+            {"cases": [_case("只覆盖登录成功")]},
+            {
+                "cases": [
+                    _case("登录成功", "TC-001", "functional"),
+                    _case("手机号为空", "TC-002", "boundary"),
+                    _case("验证码错误", "TC-003", "exception"),
+                    _case("无权限登录", "TC-004", "permission"),
+                    _case("SQL 注入防护", "TC-005", "security"),
+                ]
+            },
+        ]
+    )
+
+    response = _generator(
+        llm,
+        retries=1,
+        review_retry_enabled=True,
+        review_min_score=70,
+    ).generate(
+        GenerateRequest(
+            description="生成登录测试用例",
+            max_cases=5,
+            knowledge_top_k=0,
+        )
+    )
+
+    review_steps = [
+        step for step in response.metadata.workflow_steps if step.name == "review_cases"
+    ]
+    route_steps = [
+        step for step in response.metadata.workflow_steps if step.name == "route_after_review"
+    ]
+    assert response.metadata.attempts == 2
+    assert response.metadata.review is not None
+    assert response.metadata.review.passed is True
+    assert "passed=False" in review_steps[0].summary
+    assert "passed=True" in review_steps[1].summary
+    assert route_steps[0].summary == "decision=retry, reason=review_feedback"
+    assert "Reviewer Agent 审查未通过" in llm.messages[1][1]["content"]
 
 
 def test_generate_truncates_to_max_cases() -> None:

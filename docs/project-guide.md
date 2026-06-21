@@ -16,7 +16,7 @@
 
 ## 2. 一句话流程
 
-用户输入需求描述 -> 工作流状态初始化 -> 需求分析 -> Chroma 检索相关知识 -> 测试策略规划 -> 构造 Prompt -> 调用智谱 LLM JSON Mode -> Pydantic 校验 -> 后处理、usage 估算和历史记录 -> 返回测试用例 JSON 或 Excel。
+用户输入需求描述 -> 工作流状态初始化 -> 需求分析 -> Chroma 检索相关知识 -> 测试策略规划 -> 构造 Prompt -> 调用智谱 LLM JSON Mode -> Pydantic 校验 -> 后处理 -> Reviewer 审查和条件重试 -> usage 估算和历史记录 -> 返回测试用例 JSON 或 Excel。
 
 ## 3. 核心能力
 
@@ -49,6 +49,7 @@ app/
     rag.py                Chroma RAG 检索和文档导入
     generator.py          测试用例生成主流程
     agent_workflow.py     Agent 工作流状态、节点抽象和测试策略规划
+    reviewer.py           Reviewer 节点的本地质量审查和重试反馈
     excel_exporter.py     Excel 导出
 
 scripts/
@@ -228,9 +229,14 @@ DELETE /api/v1/knowledge/documents?source=knowledge/prd/login.md
 7. 后端解析 JSON。
 8. `TestCaseCollection.model_validate()` 用 Pydantic 校验字段。
 9. 如果校验失败，把错误信息放回 Prompt 自动重试。
-10. 校验成功后后处理、估算 usage，并返回 `GenerateResponse`。
+10. 校验成功后后处理用例。
+11. `review_cases` 复用本地质量评分做 Reviewer 审查。
+12. `route_after_review` 根据配置决定接受结果，或把审查反馈写入下一轮 Prompt。
+13. 估算 usage，并返回 `GenerateResponse`。
 
-每次生成都会创建一个 `GenerationWorkflowState` 作为短期记忆。工作流节点通过这个 state 读写需求分析、RAG 上下文、测试策略、Prompt、LLM payload、校验结果和 usage。每次成功生成都会在 `metadata.workflow_steps` 中返回节点轨迹，包括节点名、状态、摘要和耗时。
+每次生成都会创建一个 `GenerationWorkflowState` 作为短期记忆。工作流节点通过这个 state 读写需求分析、RAG 上下文、测试策略、Prompt、LLM payload、校验结果、Reviewer 结论和 usage。每次成功生成都会在 `metadata.workflow_steps` 中返回节点轨迹，包括节点名、状态、摘要和耗时。
+
+Reviewer 默认只记录审查结论，不增加 LLM 调用。显式开启 `AGENT_REVIEW_RETRY_ENABLED=true` 后，如果审查分数低于 `AGENT_REVIEW_MIN_SCORE`，且还有 `LLM_MAX_RETRIES` 预算，系统会把 Reviewer 反馈注入下一轮 Prompt。
 
 生成记录落库后，历史详情会基于请求和响应计算一份本地质量报告。评分维度包括用例数量、标题重复率、目标类型覆盖、步骤/预期完整度和知识库 grounding。该评分用于回放和筛选，不会调用大模型，也不替代人工验收。
 
@@ -291,6 +297,9 @@ LLM_TIMEOUT_SECONDS
 LLM_PROMPT_PRICE_PER_1K_TOKENS
 LLM_COMPLETION_PRICE_PER_1K_TOKENS
 LLM_COST_CURRENCY
+AGENT_REVIEW_ENABLED
+AGENT_REVIEW_RETRY_ENABLED
+AGENT_REVIEW_MIN_SCORE
 RATE_LIMIT_ENABLED
 RATE_LIMIT_REQUESTS
 RATE_LIMIT_WINDOW_SECONDS
@@ -303,9 +312,9 @@ CORS_ALLOW_CREDENTIALS
 
 项目也兼容读取当前已有的 `.env/config.py`。
 
-注意：`.env/config.py` 里如果有真实 API Key 或服务调用密钥，不要提交到版本库。除 `/health` 外，业务接口需要在请求头携带 `X-API-Key`。服务会为响应增加 `X-Request-ID` 和 `X-Process-Time-ms`，并默认对 `/api/v1/*` 做内存级限流。生成接口还会默认把生成请求、响应、失败原因和耗时写入 `GENERATION_HISTORY_DB_PATH` 指向的 SQLite 数据库。
+注意：`.env/config.py` 里如果有真实 API Key 或服务调用密钥，不要提交到版本库。除 `/health` 外，业务接口需要在请求头携带 `X-API-Key`。服务会为响应增加 `X-Request-ID` 和 `X-Process-Time-ms`，并默认对 `/api/v1/*` 做内存级限流。生成接口还会默认把生成请求、响应、失败原因和耗时写入 `GENERATION_HISTORY_DB_PATH` 指向的 SQLite 数据库。Reviewer 默认开启并写入 `metadata.review`；自动重试默认关闭，避免隐式增加 LLM 成本。
 
-生产环境应设置 `APP_ENV=production`。此时应用会在启动时强制校验关键配置，包括真实服务密钥、真实模型密钥、HTTPS CORS 来源、语义 embedding、限流、请求日志和持久化历史库路径；校验失败会拒绝启动。
+生产环境应设置 `APP_ENV=production`。此时应用会在启动时强制校验关键配置，包括真实服务密钥、真实模型密钥、HTTPS CORS 来源、语义 embedding、限流、请求日志、Agent Reviewer 和持久化历史库路径；校验失败会拒绝启动。
 
 ## 11. 如何启动
 

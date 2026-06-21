@@ -69,6 +69,18 @@ def test_settings_reads_llm_cost_configuration(monkeypatch) -> None:
     assert settings.llm_cost_currency == "CNY"
 
 
+def test_settings_reads_agent_review_configuration(monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_REVIEW_ENABLED", "false")
+    monkeypatch.setenv("AGENT_REVIEW_RETRY_ENABLED", "true")
+    monkeypatch.setenv("AGENT_REVIEW_MIN_SCORE", "75")
+
+    settings = get_settings()
+
+    assert settings.agent_review_enabled is False
+    assert settings.agent_review_retry_enabled is True
+    assert settings.agent_review_min_score == 75
+
+
 def test_settings_reads_embedding_configuration(monkeypatch) -> None:
     monkeypatch.setenv("EMBEDDING_PROVIDER", "sentence_transformers")
     monkeypatch.setenv("EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5")
@@ -157,6 +169,7 @@ def test_production_validation_rejects_disabled_runtime_guards() -> None:
             cors_allow_origins=["https://qa.example.com"],
             embedding_provider="sentence_transformers",
             embedding_local_files_only=False,
+            agent_review_enabled=False,
             rate_limit_enabled=False,
             request_log_enabled=False,
             generation_history_enabled=False,
@@ -165,6 +178,7 @@ def test_production_validation_rejects_disabled_runtime_guards() -> None:
     )
 
     assert any("EMBEDDING_LOCAL_FILES_ONLY" in error for error in errors)
+    assert any("AGENT_REVIEW_ENABLED" in error for error in errors)
     assert any("RATE_LIMIT_ENABLED" in error for error in errors)
     assert any("REQUEST_LOG_ENABLED" in error for error in errors)
     assert any("GENERATION_HISTORY_ENABLED" in error for error in errors)

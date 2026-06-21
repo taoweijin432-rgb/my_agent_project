@@ -24,6 +24,9 @@ LLM_TIMEOUT_SECONDS=60
 LLM_PROMPT_PRICE_PER_1K_TOKENS=0
 LLM_COMPLETION_PRICE_PER_1K_TOKENS=0
 LLM_COST_CURRENCY=CNY
+AGENT_REVIEW_ENABLED=true
+AGENT_REVIEW_RETRY_ENABLED=false
+AGENT_REVIEW_MIN_SCORE=50
 RATE_LIMIT_ENABLED=true
 RATE_LIMIT_REQUESTS=60
 RATE_LIMIT_WINDOW_SECONDS=60
@@ -36,7 +39,7 @@ CORS_ALLOW_CREDENTIALS=false
 
 本地仍兼容读取 `.env/config.py`，但这个目录已经被 `.gitignore` 排除，不应提交。
 
-当 `APP_ENV=production` 时，服务会在启动阶段强制校验生产配置。以下情况会直接拒绝启动：缺少真实 `APP_API_KEY` 或 `ZHIPU_API_KEY`、CORS 使用 `*` 或本地地址、CORS 非 HTTPS、`EMBEDDING_PROVIDER=hash`、`EMBEDDING_LOCAL_FILES_ONLY=false`、关闭限流、关闭请求日志、关闭生成历史、历史库使用内存路径。
+当 `APP_ENV=production` 时，服务会在启动阶段强制校验生产配置。以下情况会直接拒绝启动：缺少真实 `APP_API_KEY` 或 `ZHIPU_API_KEY`、CORS 使用 `*` 或本地地址、CORS 非 HTTPS、`EMBEDDING_PROVIDER=hash`、`EMBEDDING_LOCAL_FILES_ONLY=false`、关闭限流、关闭请求日志、关闭 Agent Reviewer、关闭生成历史、历史库使用内存路径。
 
 ## 2. 本地运行
 
@@ -140,6 +143,7 @@ __pycache__/
 - 所有 `/api/v1/*` 接口必须携带 `X-API-Key`。
 - `CORS_ALLOW_ORIGINS` 必须配置为真实前端域名，不使用 `*`。
 - 应用内 `RATE_LIMIT_*` 必须按真实调用量调整；公网环境仍建议在网关层做限流。
+- `AGENT_REVIEW_ENABLED` 必须保持开启；是否启用 `AGENT_REVIEW_RETRY_ENABLED` 取决于成本预算和质量门槛。
 - `GENERATION_HISTORY_DB_PATH` 所在目录必须持久化，并纳入备份策略。
 - `APP_API_KEY` 和 `ZHIPU_API_KEY` 必须来自环境变量或部署密钥管理。
 - Chroma 数据目录需要持久化备份。
