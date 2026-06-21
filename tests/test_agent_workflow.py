@@ -2,6 +2,8 @@ import pytest
 
 from app.models.test_case import GenerateRequest, KnowledgeChunk, TestCaseType as CaseType
 from app.services.agent_workflow import (
+    GenerationWorkflowState,
+    WorkflowNode,
     WorkflowRecorder,
     analyze_requirement,
     plan_test_generation,
@@ -54,3 +56,32 @@ def test_workflow_recorder_records_success_and_failure() -> None:
     assert recorder.steps[1].name == "bad_node"
     assert recorder.steps[1].status == "failed"
     assert "ValueError" in recorder.steps[1].summary
+
+
+def test_workflow_node_mutates_state_and_records_trace() -> None:
+    recorder = WorkflowRecorder()
+    state = GenerationWorkflowState(
+        request=GenerateRequest(description="生成登录测试用例")
+    )
+
+    def append_context(current: GenerationWorkflowState) -> None:
+        current.contexts.append(
+            KnowledgeChunk(
+                content="登录接口规则",
+                source="knowledge/api/login.md",
+            )
+        )
+
+    recorder.run_node(
+        WorkflowNode(
+            name="append_context",
+            action=append_context,
+            summary=lambda current: f"contexts={len(current.contexts)}",
+        ),
+        state,
+    )
+
+    assert state.contexts[0].source == "knowledge/api/login.md"
+    assert recorder.steps[0].name == "append_context"
+    assert recorder.steps[0].status == "success"
+    assert recorder.steps[0].summary == "contexts=1"

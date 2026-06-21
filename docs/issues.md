@@ -32,6 +32,7 @@
 | ISSUE-017 | medium | done | 缺少可直接复用的生产运行入口和容器健康检查 |
 | ISSUE-018 | medium | done | 缺少 LLM 用量与估算成本统计，难以做费用治理 |
 | ISSUE-019 | medium | done | 生成链路缺少显式 Agent 工作流和架构讲解文档 |
+| ISSUE-020 | medium | done | Agent 工作流缺少显式状态对象和节点抽象，后续迁移框架成本偏高 |
 
 ## 问题详情
 
@@ -229,9 +230,19 @@
 - 修复：新增 `WorkflowRecorder`、需求分析节点、测试策略规划节点；生成响应的 `metadata.workflow_steps` 返回节点轨迹；Prompt 注入测试策略规划；新增 `docs/agent-architecture.md` 讲解 Agent 架构和面试技术点。
 - 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `73 passed, 3 warnings`。
 
+### ISSUE-020 Agent 工作流缺少显式状态对象和节点抽象，后续迁移框架成本偏高
+
+- 严重级别：`medium`
+- 状态：`done`
+- 位置：`app/services/agent_workflow.py`、`app/services/generator.py`、`docs/agent-architecture.md`
+- 影响：上一阶段已有 workflow trace，但生成器仍主要依赖局部变量和 `WorkflowRecorder.run()` 串联。短期记忆没有显式状态对象，节点也不是独立的 state reader/writer；后续迁移 LangGraph、增加条件边或加入 Reviewer Agent 时需要再次重构。
+- 建议：抽象 `GenerationWorkflowState` 和 `WorkflowNode`，让节点通过同一个 state 读写上下文，由 recorder 统一记录节点执行结果。
+- 修复：新增 `GenerationWorkflowState` 承载 request、analysis、contexts、plan、attempt、prompt、payload、cases、usage 和 last_error；新增 `WorkflowNode` 与 `WorkflowRecorder.run_node()`；`TestCaseGenerator` 改为节点读写 state 的状态机形态；文档补充 state/node 与 LangGraph 映射关系。
+- 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `74 passed, 3 warnings`。
+
 ## 本次检查记录
 
 - 已读：`README.md`、`docs/project-guide.md`、`requirements.txt`、核心 `app/` 模块、`scripts/`、`tests/`。
 - 已运行：`.\.venv\Scripts\python.exe -m pytest -q`
-- 结果：`73 passed, 3 warnings`
+- 结果：`74 passed, 3 warnings`
 - 限制：已完成健康检查和一次真实生成烟测；当前目录已初始化 Git，并已创建首次提交。

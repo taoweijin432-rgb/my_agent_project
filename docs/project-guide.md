@@ -16,7 +16,7 @@
 
 ## 2. 一句话流程
 
-用户输入需求描述 -> Chroma 检索相关知识 -> 构造 Prompt -> 调用智谱 LLM JSON Mode -> Pydantic 校验 -> 返回测试用例 JSON 或 Excel。
+用户输入需求描述 -> 工作流状态初始化 -> 需求分析 -> Chroma 检索相关知识 -> 测试策略规划 -> 构造 Prompt -> 调用智谱 LLM JSON Mode -> Pydantic 校验 -> 后处理、usage 估算和历史记录 -> 返回测试用例 JSON 或 Excel。
 
 ## 3. 核心能力
 
@@ -48,6 +48,7 @@ app/
     prompt.py             Prompt 模板和 Few-shot 示例
     rag.py                Chroma RAG 检索和文档导入
     generator.py          测试用例生成主流程
+    agent_workflow.py     Agent 工作流状态、节点抽象和测试策略规划
     excel_exporter.py     Excel 导出
 
 scripts/
@@ -229,7 +230,7 @@ DELETE /api/v1/knowledge/documents?source=knowledge/prd/login.md
 9. 如果校验失败，把错误信息放回 Prompt 自动重试。
 10. 校验成功后后处理、估算 usage，并返回 `GenerateResponse`。
 
-每次成功生成都会在 `metadata.workflow_steps` 中返回节点轨迹，包括节点名、状态、摘要和耗时。
+每次生成都会创建一个 `GenerationWorkflowState` 作为短期记忆。工作流节点通过这个 state 读写需求分析、RAG 上下文、测试策略、Prompt、LLM payload、校验结果和 usage。每次成功生成都会在 `metadata.workflow_steps` 中返回节点轨迹，包括节点名、状态、摘要和耗时。
 
 生成记录落库后，历史详情会基于请求和响应计算一份本地质量报告。评分维度包括用例数量、标题重复率、目标类型覆盖、步骤/预期完整度和知识库 grounding。该评分用于回放和筛选，不会调用大模型，也不替代人工验收。
 

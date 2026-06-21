@@ -1,10 +1,18 @@
 import time
 from dataclasses import dataclass, field
-from typing import Callable, TypeVar
+from typing import Any, Callable, Generic, TypeVar
 
-from app.models.test_case import GenerateRequest, KnowledgeChunk, TestCaseType, WorkflowStep
+from app.models.test_case import (
+    GenerateRequest,
+    GenerationUsage,
+    KnowledgeChunk,
+    TestCase,
+    TestCaseType,
+    WorkflowStep,
+)
 
 
+StateT = TypeVar("StateT")
 T = TypeVar("T")
 
 
@@ -31,6 +39,29 @@ class TestGenerationPlan:
             f"可用知识来源：{sources}\n"
             f"风险提示：\n{notes}"
         )
+
+
+@dataclass
+class GenerationWorkflowState:
+    request: GenerateRequest
+    analysis: RequirementAnalysis | None = None
+    contexts: list[KnowledgeChunk] = field(default_factory=list)
+    plan: TestGenerationPlan | None = None
+    attempt: int = 0
+    correction: str | None = None
+    prompt_messages: list[list[dict[str, str]]] = field(default_factory=list)
+    completion_payloads: list[Any] = field(default_factory=list)
+    payload: dict[str, Any] | None = None
+    cases: list[TestCase] = field(default_factory=list)
+    usage: GenerationUsage | None = None
+    last_error: Exception | None = None
+
+
+@dataclass(frozen=True)
+class WorkflowNode(Generic[StateT]):
+    name: str
+    action: Callable[[StateT], None]
+    summary: str | Callable[[StateT], str]
 
 
 class WorkflowRecorder:
@@ -68,6 +99,31 @@ class WorkflowRecorder:
             )
         )
         return result
+
+    def run_node(self, node: WorkflowNode[StateT], state: StateT) -> None:
+        started = time.perf_counter()
+        try:
+            node.action(state)
+            step_summary = node.summary(state) if callable(node.summary) else node.summary
+        except Exception as exc:
+            self.steps.append(
+                WorkflowStep(
+                    name=node.name,
+                    status="failed",
+                    summary=f"{type(exc).__name__}: {exc}",
+                    duration_ms=_elapsed_ms(started),
+                )
+            )
+            raise
+
+        self.steps.append(
+            WorkflowStep(
+                name=node.name,
+                status="success",
+                summary=step_summary,
+                duration_ms=_elapsed_ms(started),
+            )
+        )
 
 
 def analyze_requirement(request: GenerateRequest) -> RequirementAnalysis:
