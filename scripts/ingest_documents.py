@@ -89,9 +89,9 @@ def _document_from_path(path: Path) -> KnowledgeDocument:
 def _relative_source(path: Path) -> str:
     resolved = path.resolve()
     try:
-        return str(resolved.relative_to(PROJECT_ROOT))
+        return resolved.relative_to(PROJECT_ROOT).as_posix()
     except ValueError:
-        return str(resolved)
+        return resolved.as_posix()
 
 
 def _infer_metadata(path: Path) -> tuple[str, str]:

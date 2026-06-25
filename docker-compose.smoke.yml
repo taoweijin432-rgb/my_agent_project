@@ -1,0 +1,22 @@
+services:
+  api:
+    build:
+      args:
+        REQUIREMENTS_FILE: requirements-smoke.txt
+    image: ai-testcase-generator:${IMAGE_TAG:-smoke}
+    volumes:
+      - smoke-data:/app/data
+      - smoke-model-cache:/app/.model_cache/huggingface
+
+  worker:
+    build:
+      args:
+        REQUIREMENTS_FILE: requirements-smoke.txt
+    image: ai-testcase-generator:${IMAGE_TAG:-smoke}
+    volumes:
+      - smoke-data:/app/data
+      - smoke-model-cache:/app/.model_cache/huggingface
+
+volumes:
+  smoke-data:
+  smoke-model-cache:

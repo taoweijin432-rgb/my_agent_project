@@ -69,10 +69,12 @@ class WorkflowNode(Generic[StateT]):
     name: str
     action: Callable[[StateT], None]
     summary: str | Callable[[StateT], str]
+    trace: Callable[[StateT], dict[str, Any]] | None = None
 
 
 class WorkflowRecorder:
-    def __init__(self) -> None:
+    def __init__(self, *, backend: str | None = None) -> None:
+        self.backend = backend
         self.steps: list[WorkflowStep] = []
 
     def run(
@@ -92,6 +94,8 @@ class WorkflowRecorder:
                     status="failed",
                     summary=f"{type(exc).__name__}: {exc}",
                     duration_ms=_elapsed_ms(started),
+                    backend=self.backend,
+                    trace=_error_trace(exc),
                 )
             )
             raise
@@ -103,6 +107,7 @@ class WorkflowRecorder:
                 status="success",
                 summary=step_summary,
                 duration_ms=_elapsed_ms(started),
+                backend=self.backend,
             )
         )
         return result
@@ -113,12 +118,16 @@ class WorkflowRecorder:
             node.action(state)
             step_summary = node.summary(state) if callable(node.summary) else node.summary
         except Exception as exc:
+            trace = _node_trace(node, state)
+            trace.update(_error_trace(exc))
             self.steps.append(
                 WorkflowStep(
                     name=node.name,
                     status="failed",
                     summary=f"{type(exc).__name__}: {exc}",
                     duration_ms=_elapsed_ms(started),
+                    backend=self.backend,
+                    trace=trace,
                 )
             )
             raise
@@ -129,6 +138,8 @@ class WorkflowRecorder:
                 status="success",
                 summary=step_summary,
                 duration_ms=_elapsed_ms(started),
+                backend=self.backend,
+                trace=_node_trace(node, state),
             )
         )
 
@@ -224,3 +235,22 @@ def _unique_sources(contexts: list[KnowledgeChunk]) -> list[str]:
 
 def _elapsed_ms(started: float) -> float:
     return round((time.perf_counter() - started) * 1000, 2)
+
+
+def _node_trace(node: WorkflowNode[StateT], state: StateT) -> dict[str, Any]:
+    if node.trace is None:
+        return {}
+    try:
+        return node.trace(state)
+    except Exception as exc:
+        return {
+            "trace_error_type": type(exc).__name__,
+            "trace_error": str(exc),
+        }
+
+
+def _error_trace(exc: Exception) -> dict[str, Any]:
+    return {
+        "error_type": type(exc).__name__,
+        "error_message": str(exc),
+    }

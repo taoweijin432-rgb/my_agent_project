@@ -85,3 +85,32 @@ def test_workflow_node_mutates_state_and_records_trace() -> None:
     assert recorder.steps[0].name == "append_context"
     assert recorder.steps[0].status == "success"
     assert recorder.steps[0].summary == "contexts=1"
+
+
+def test_workflow_recorder_adds_backend_and_trace_details() -> None:
+    recorder = WorkflowRecorder(backend="langgraph")
+    state = GenerationWorkflowState(
+        request=GenerateRequest(description="生成登录测试用例")
+    )
+
+    recorder.run_node(
+        WorkflowNode(
+            name="trace_node",
+            action=lambda current: current.contexts.append(
+                KnowledgeChunk(content="登录规则", source="knowledge/login.md")
+            ),
+            summary="ok",
+            trace=lambda current: {
+                "context_count": len(current.contexts),
+                "source": current.contexts[0].source,
+            },
+        ),
+        state,
+    )
+
+    step = recorder.steps[0]
+    assert step.backend == "langgraph"
+    assert step.trace == {
+        "context_count": 1,
+        "source": "knowledge/login.md",
+    }

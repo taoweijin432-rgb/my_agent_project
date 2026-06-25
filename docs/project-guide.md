@@ -148,7 +148,7 @@ GET /api/v1/test-cases/generation-jobs/{job_id}
 - `succeeded`：生成完成，详情里包含 `response`。
 - `failed`：生成失败，详情里包含 `error`；如果是预算或质量门控失败，`error.gate` 会包含 human-in-the-loop 结构化信息。
 
-队列配置由 `GENERATION_JOB_MAX_WORKERS`、`GENERATION_JOB_MAX_QUEUE_SIZE` 和 `GENERATION_JOB_RETENTION_SECONDS` 控制。当前队列是单进程内存实现，可以提升接口接单能力和长任务并发管理；多实例部署时需要替换为 Redis/Celery/RQ 等外部队列，否则不同进程之间不会共享任务状态。
+队列配置由 `GENERATION_JOB_QUEUE_BACKEND`、`GENERATION_JOB_MAX_QUEUE_SIZE`、`GENERATION_JOB_RETENTION_SECONDS`、`GENERATION_JOB_STALE_AFTER_SECONDS`、`REDIS_URL` 和 `RQ_QUEUE_NAME` 控制。默认 `in_memory` backend 适合本地开发；`rq` backend 使用 Redis/RQ 派发任务，并把任务状态写入当前 `DATABASE_BACKEND` 对应的数据库。worker 启动时会把超过 stale 阈值仍处于 `running` 的任务标记为失败。默认 SQLite 状态库适合单机部署；MySQL backend 已实现并通过本机 Docker smoke、备份恢复、Compose 模板和 5 任务稳定性 smoke，多实例生产还需要补故障恢复、队列可观测性和更长时长运行验证。
 
 ### 5.3 导出 Excel
 
@@ -278,17 +278,17 @@ POST /api/v1/generation-gates/{record_id}/resolve
 12. 如果校验失败，把错误信息放回 Prompt 自动重试。
 13. 校验成功后后处理用例。
 14. `review_cases` 复用本地质量评分做 Reviewer 审查。
-15. `route_after_review` 根据配置决定接受结果，或把审查反馈写入下一轮 Prompt。
+15. `route_after_review` 根据配置决定接受结果，或把覆盖修复反馈写入下一轮 Prompt。
 16. 如果 `AGENT_REVIEW_REQUIRE_PASS=true`，`check_quality_gate` 会阻断 Reviewer 未通过的结果。
 17. 估算 usage，并返回 `GenerateResponse`。
 
-每次生成都会创建一个 `GenerationWorkflowState` 作为短期记忆。工作流节点通过这个 state 读写需求分析、RAG 上下文、重写后的检索 query、测试策略、Prompt、LLM payload、校验结果、Reviewer 结论和 usage。每次成功生成都会在 `metadata.workflow_steps` 中返回节点轨迹，包括节点名、状态、摘要和耗时。
+每次生成都会创建一个 `GenerationWorkflowState` 作为短期记忆。工作流节点通过这个 state 读写需求分析、RAG 上下文、重写后的检索 query、测试策略、Prompt、LLM payload、校验结果、Reviewer 结论和 usage。每次成功生成都会在 `metadata.workflow_steps` 中返回节点轨迹，包括节点名、状态、摘要、耗时、实际 backend 和结构化 `trace`。`trace` 会记录路由决策、RAG 召回数、预算估算、Reviewer 分数、缺失验收点、覆盖修复原因和 usage 等机器可读字段。
 
 query rewrite 是本地确定性逻辑，不调用 LLM。默认 `AGENT_QUERY_REWRITE_ENABLED=true`，当初次召回少于 `AGENT_QUERY_REWRITE_MIN_CHUNKS` 时触发一次重检索。
 
-Reviewer 默认只记录审查结论，不增加 LLM 调用。显式开启 `AGENT_REVIEW_RETRY_ENABLED=true` 后，如果审查分数低于 `AGENT_REVIEW_MIN_SCORE`，且还有 `LLM_MAX_RETRIES` 预算，系统会把 Reviewer 反馈注入下一轮 Prompt。
+Reviewer 默认只记录审查结论，不增加 LLM 调用。显式开启 `AGENT_REVIEW_RETRY_ENABLED=true` 后，如果审查分数低于 `AGENT_REVIEW_MIN_SCORE` 或存在阻断性告警，且还有 `LLM_MAX_RETRIES` 预算，系统会把 Reviewer 反馈注入下一轮 Prompt。若缺失目标类型或关键验收点，反馈会进入覆盖修复模式，要求补齐缺口；如果生成数量已满，则要求替换低价值、重复或泛化用例，而不是超出 `max_cases` 追加。
 
-预算门控默认不阻断。设置 `AGENT_BUDGET_MAX_PROMPT_TOKENS` 或 `AGENT_BUDGET_MAX_ESTIMATED_COST` 后，超限请求会在调用 LLM 前返回 409，并把估算 usage 写入失败历史。质量门控默认不阻断；设置 `AGENT_REVIEW_REQUIRE_PASS=true` 后，Reviewer 未通过的结果会返回 409，交给人工确认或调整需求后重试。
+预算门控默认不阻断。设置 `AGENT_BUDGET_MAX_PROMPT_TOKENS` 或 `AGENT_BUDGET_MAX_ESTIMATED_COST` 后，超限请求会在调用 LLM 前返回 409，并把估算 usage 写入失败历史。质量门控默认不阻断；设置 `AGENT_REVIEW_REQUIRE_PASS=true` 后，Reviewer 未通过的结果会返回 409，交给人工确认或调整需求后重试。对真实评估或接近生产的运行，建议同时设置 `AGENT_REVIEW_RETRY_ENABLED=true` 和 `AGENT_REVIEW_REQUIRE_PASS=true`，避免 Reviewer 已识别缺口时仍返回成功响应。
 
 门控失败时，API 返回结构化 `detail`，字段包括：
 
@@ -307,7 +307,7 @@ Reviewer 默认只记录审查结论，不增加 LLM 调用。显式开启 `AGEN
 
 门控失败记录会持久化到生成历史中，并可通过 `GET /api/v1/generation-gates` 单独查询。历史摘要和详情都会返回 `gate` 字段。
 
-生成记录落库后，历史详情会基于请求和响应计算一份本地质量报告。评分维度包括用例数量、标题重复率、目标类型覆盖、步骤/预期完整度和知识库 grounding。该评分用于回放和筛选，不会调用大模型，也不替代人工验收。
+生成记录落库后，历史详情会基于请求和响应计算一份本地质量报告。评分维度包括用例数量、标题重复率、目标类型覆盖、步骤/预期完整度、知识库 grounding 和关键验收点覆盖。关键验收点会从用户需求和已召回的 RAG 片段中提取，缺失项会进入 `missing_acceptance_keywords` 和 `warnings`，用于 Reviewer retry、质量门控、历史回放和人工复核。该评分不会调用大模型，也不替代人工验收。
 
 生成 metadata 和历史记录还包含 `usage`。当前 usage 通过字符数启发式估算 token，用于成本趋势和滥用排查；如果配置每千 token 单价，会额外返回估算费用。该值不等同于模型供应商账单。
 
@@ -327,6 +327,17 @@ RAG 相关代码在 `app/services/rag.py`。
 embedding 支持配置化。默认使用本地 deterministic hash embedding，不需要额外下载模型，适合本地启动和演示；也可以切换为 `sentence_transformers`，例如轻量中文模型 `BAAI/bge-small-zh-v1.5`。切换不同 embedding 模型时，需要使用新的 Chroma collection，避免旧向量维度和新模型维度不一致。
 
 批量初始化知识库时可以继续使用导入脚本配合 `--reset`。日常维护单个文档时优先使用 upsert/delete 接口，避免同一个 `source` 的旧内容残留在检索结果中。
+
+当前阶段不需要为了登录验证大范围重写知识库。已经导入并能召回的 PRD 可以继续作为真实链路验证材料；如果生成结果遗漏了已召回文档里的规则，优先检查 Prompt、Reviewer 和质量门控是否覆盖，而不是先怀疑知识库不存在。
+
+需要更新知识库的典型情况：
+
+- RAG query 没有命中目标 `source`，或 `retrieved_chunks=0`。
+- 检索片段命中旧版本 PRD、旧接口字段或已废弃规则。
+- 文档没有明确验收口径，例如状态、阈值、有效期、权限矩阵、安全防护、审计字段只写成泛泛描述。
+- 同一个功能的 PRD、接口、安全要求分散在多个文件，导致 top_k 容易召回不完整。
+
+后续推荐把知识库整理为 PRD、接口契约、权限矩阵、安全要求、审计日志和历史缺陷/测试用例等分层文档。每个文档保持稳定 `source`，使用 upsert 更新；每次更新后先调用知识库查询接口确认目标规则能被召回，再跑生成链路。
 
 ## 9. Prompt 约束策略
 
@@ -374,13 +385,23 @@ AGENT_QUERY_REWRITE_ENABLED
 AGENT_QUERY_REWRITE_MIN_CHUNKS
 AGENT_BUDGET_MAX_PROMPT_TOKENS
 AGENT_BUDGET_MAX_ESTIMATED_COST
+AGENT_WORKFLOW_BACKEND
+GENERATION_JOB_QUEUE_BACKEND
 GENERATION_JOB_MAX_WORKERS
 GENERATION_JOB_MAX_QUEUE_SIZE
 GENERATION_JOB_RETENTION_SECONDS
+REDIS_URL
+RQ_QUEUE_NAME
+RQ_JOB_TIMEOUT_SECONDS
+RQ_RESULT_TTL_SECONDS
+RQ_FAILURE_TTL_SECONDS
+GENERATION_JOB_STALE_AFTER_SECONDS
 RATE_LIMIT_ENABLED
 RATE_LIMIT_REQUESTS
 RATE_LIMIT_WINDOW_SECONDS
 REQUEST_LOG_ENABLED
+DATABASE_BACKEND
+DATABASE_URL
 GENERATION_HISTORY_ENABLED
 GENERATION_HISTORY_DB_PATH
 CORS_ALLOW_ORIGINS
@@ -389,7 +410,7 @@ CORS_ALLOW_CREDENTIALS
 
 项目也兼容读取当前已有的 `.env/config.py`。
 
-注意：`.env/config.py` 里如果有真实 API Key 或服务调用密钥，不要提交到版本库。除 `/health` 外，业务接口需要在请求头携带 `X-API-Key`。服务会为响应增加 `X-Request-ID` 和 `X-Process-Time-ms`，并默认对 `/api/v1/*` 做内存级限流。生成接口还会默认把生成请求、响应、失败原因和耗时写入 `GENERATION_HISTORY_DB_PATH` 指向的 SQLite 数据库。异步生成队列默认使用进程内 worker，适合单机部署；多实例部署时应替换为外部队列。Reviewer 默认开启并写入 `metadata.review`；自动重试默认关闭，避免隐式增加 LLM 成本。
+注意：`.env/config.py` 里如果有真实 API Key 或服务调用密钥，不要提交到版本库。除 `/health` 外，业务接口需要在请求头携带 `X-API-Key`。服务会为响应增加 `X-Request-ID` 和 `X-Process-Time-ms`，并默认对 `/api/v1/*` 做内存级限流。生成接口默认把生成请求、响应、失败原因和耗时写入 `DATABASE_BACKEND=sqlite`、`GENERATION_HISTORY_DB_PATH` 指向的 SQLite 数据库；`DATABASE_BACKEND=mysql` 代码路径已实现并通过本机 Docker MySQL smoke，启用前需要安装 `requirements-mysql.txt` 并初始化 schema。异步生成可使用进程内 worker 或 Redis/RQ 外部队列；直接在 WSL/本机 Python 运行时可用 `REDIS_URL=redis://127.0.0.1:6379/0`，Docker Compose 内部使用 `REDIS_URL=redis://redis:6379/0`。`AGENT_WORKFLOW_BACKEND` 默认使用 `langgraph`；`local` backend 保留为 fallback 和行为对照。Reviewer 默认开启并写入 `metadata.review`；自动重试默认关闭，避免隐式增加 LLM 成本。
 
 生产环境应设置 `APP_ENV=production`。此时应用会在启动时强制校验关键配置，包括真实服务密钥、真实模型密钥、HTTPS CORS 来源、语义 embedding、限流、请求日志、Agent Reviewer 和持久化历史库路径；校验失败会拒绝启动。
 
@@ -466,7 +487,8 @@ POST /api/v1/knowledge/ingest
 - 替换更强的 embedding 模型，提高 RAG 召回质量。
 - 增加文件上传接口，支持上传 PRD、Word、PDF。
 - 增加测试管理平台 adapter，例如禅道、TestRail、飞书多维表格。
-- 将进程内异步队列替换为 Redis/Celery/RQ，支持多实例共享任务状态。
+- 补齐 MySQL 生产化：Compose 服务模板、备份恢复、连接池参数、稳定性验证和默认 backend 切换评估。
+- 增强 Redis/RQ 队列治理，例如原子背压、队列指标、失败率统计和 worker 运行时长监控。
 - 增强用例质量评分，例如覆盖率、风险等级和人工验收结果回流。
 - 增加用户可配置的测试策略模板。
 - 增加用户体系和项目级权限隔离。
@@ -498,6 +520,8 @@ POST /api/v1/knowledge/ingest
 - 是否已导入知识库。
 - `knowledge_top_k` 是否太小。
 - 文档切分是否太碎或太长。
+- 是否使用了和当前 embedding 维度匹配的 Chroma collection。
+- 目标规则是否实际存在于召回片段中，可以临时设置 `include_context=true` 查看。
 - 当前 hash embedding 只是本地简化方案，生产建议替换为专业 embedding。
 
 ## 16. 当前项目状态

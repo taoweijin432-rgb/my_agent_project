@@ -1,6 +1,6 @@
 # 架构基线
 
-本文固定当前封版架构，作为后续升级 Redis 队列、PostgreSQL、LangGraph 和可观测性的对照基线。
+本文固定当前封版架构，作为后续升级 MySQL 生产化、LangGraph 默认链路和可观测性的对照基线。
 
 ## 1. 当前定位
 
@@ -27,7 +27,7 @@ Agent Workflow State + Nodes
         |
 RAG / Prompt / LLM / Reviewer / Gates
         |
-SQLite History + Chroma Knowledge Base
+Database Backend + Chroma Knowledge Base
 ```
 
 主要模块：
@@ -41,8 +41,12 @@ SQLite History + Chroma Knowledge Base
 - `app/services/reviewer.py`：Reviewer 节点和修复反馈。
 - `app/services/quality.py`：本地质量评分。
 - `app/services/usage.py`：token 和费用估算。
-- `app/services/history.py`：SQLite 生成历史和门控处理。
-- `app/services/generation_jobs.py`：进程内异步任务队列。
+- `app/services/history.py`：SQLite 生成历史和门控处理实现。
+- `app/services/generation_job_store.py`：SQLite 异步任务状态实现。
+- `app/services/mysql_stores.py`：MySQL 生成历史、门控处理和异步任务状态实现。
+- `app/services/stores.py`：数据库 backend factory，按 `DATABASE_BACKEND=sqlite|mysql` 选择实现。
+- `app/services/generation_jobs.py`：进程内队列和 Redis/RQ 队列 adapter。
+- `app/workers/generation_rq.py`：Redis/RQ worker 任务入口。
 
 ## 3. 关键数据流
 
@@ -62,10 +66,10 @@ POST /test-cases/generate
 
 ```text
 POST /test-cases/generation-jobs
--> InMemoryGenerationJobQueue.submit()
--> queued job
+-> GenerationJobQueue.submit()
+-> in-memory queue or Redis/RQ
 -> worker calls original generation chain
--> job status becomes succeeded/failed
+-> job status becomes succeeded/failed in memory or configured database backend
 -> GET /test-cases/generation-jobs/{job_id}
 ```
 
@@ -75,7 +79,7 @@ POST /test-cases/generation-jobs
 Budget/quality gate failed
 -> GenerationGateError
 -> HTTP 409 or async job failed
--> gate detail persisted in SQLite
+-> gate detail persisted in configured database backend
 -> GET /generation-gates
 -> POST /generation-gates/{record_id}/resolve
 ```
@@ -95,7 +99,8 @@ Budget/quality gate failed
 
 情景记忆：
 
-- SQLite 生成历史。
+- 配置化数据库 backend 中的生成历史。
+- 默认 `DATABASE_BACKEND=sqlite`，也可切换到已实现并 smoke 通过的 `DATABASE_BACKEND=mysql`。
 - 保存请求、响应、失败原因、usage、质量报告、门控 detail 和门控处理状态。
 
 ## 5. 工作流基线
@@ -139,7 +144,8 @@ estimate_usage
 - Dockerfile 和 Docker Compose 模板。
 - 运行数据、密钥、模型缓存、向量库和私有知识库忽略规则。
 - 生成历史和门控审计。
-- 异步任务队列和队列满背压。
+- 进程内异步任务队列、Redis/RQ 外部队列和队列满背压。
+- 数据库 backend 抽象，默认 SQLite，MySQL backend 已完成本机 Docker smoke。
 
 仍需外部基础设施补齐：
 
@@ -147,31 +153,34 @@ estimate_usage
 - 网关层限流。
 - 集中日志。
 - metrics 和告警。
-- 外部队列。
-- 生产数据库。
+- MySQL 生产部署硬化、备份恢复和默认 backend 切换。
+- 队列可观测性和严格原子背压。
 - 密钥管理。
 
 ## 7. 升级边界
 
-外部队列升级：
+外部队列现状：
 
 - 保留 API 模型：`GenerationJobDetail`、`GenerationJobSummary`、`GenerationJobError`。
 - 保留 API 路径：`/test-cases/generation-jobs`。
-- 替换实现：`InMemoryGenerationJobQueue` -> Redis/RQ/Celery adapter。
-- 任务状态需要持久化到数据库，避免进程重启后丢失。
+- 已新增 Redis/RQ adapter，并把任务状态写入配置化数据库 backend。
+- 默认 SQLite 适合单机部署；MySQL backend 已实现并通过 Redis/RQ worker smoke、备份恢复、Compose 模板和 5 任务稳定性 smoke，但生产默认切换仍需故障恢复和更长时长运行验证。
 
-PostgreSQL 升级：
+MySQL 现状：
 
-- 保留 `GenerationHistoryStore` 对外方法语义。
-- 将 SQLite 表结构映射为 PostgreSQL migration。
-- 把生成历史、门控处理、异步任务状态统一纳入事务边界。
+- 已保留 `GenerationHistoryStore` 对外方法语义，并新增 repository protocol/factory。
+- 已将 SQLite 运行表结构映射为 `migrations/mysql/001_initial.sql`。
+- 已把生成历史、门控处理、异步任务状态纳入 MySQL backend。
+- 当前默认仍是 `DATABASE_BACKEND=sqlite`；Compose MySQL 模板、备份恢复文档、端到端 smoke、恢复演练和 5 任务稳定性 smoke 已完成，生产切换前仍需要 worker crash、Redis/MySQL 短暂不可用和更长时长运行验证。
 
 LangGraph 升级：
 
+- 默认 backend 已切为 `AGENT_WORKFLOW_BACKEND=langgraph`，`local` backend 保留为 fallback 和行为对照。
 - `GenerationWorkflowState` 映射为 graph state。
 - 当前节点函数映射为 graph node。
 - 现有 route 节点映射为 conditional edge。
 - `workflow_steps` 继续作为对外可观测输出。
+- 第一阶段不替换异常语义、Prompt、RAG、Reviewer、门控和历史落库。
 
 RAG 升级：
 
@@ -191,6 +200,6 @@ RAG 升级：
 
 当前架构不应宣称为完整生产最终态：
 
-- 队列和数据库还不是多实例基础设施。
+- 默认 SQLite 仍不是多实例基础设施；MySQL backend 可用但尚未作为生产默认。
 - 权限和监控还不完整。
 - RAG 评估和线上质量治理还需要继续增强。

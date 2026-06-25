@@ -36,6 +36,7 @@ def score_generation_quality(
     average_expected = _average([len(case.expected) for case in cases])
     completeness_rate = _completeness_rate(cases)
     knowledge_grounded = _knowledge_grounded(request, response)
+    acceptance_keyword_gaps = _acceptance_keyword_gaps(request, response)
 
     score = round(
         _case_count_score(case_count)
@@ -43,12 +44,14 @@ def score_generation_quality(
         + _step_quality_score(completeness_rate, average_steps)
         + _knowledge_score(request, response)
         + (15 * (1 - duplicate_title_rate))
+        - min(15, len(acceptance_keyword_gaps) * 3)
     )
     warnings, recommendations = _build_feedback(
         request=request,
         case_count=case_count,
         duplicate_title_count=duplicate_title_count,
         missing_target_types=missing_target_types,
+        acceptance_keyword_gaps=acceptance_keyword_gaps,
         average_steps=average_steps,
         average_expected=average_expected,
         knowledge_grounded=knowledge_grounded,
@@ -66,6 +69,7 @@ def score_generation_quality(
         average_steps=round(average_steps, 2),
         average_expected=round(average_expected, 2),
         knowledge_grounded=knowledge_grounded,
+        missing_acceptance_keywords=acceptance_keyword_gaps,
         warnings=warnings,
         recommendations=recommendations,
     )
@@ -116,6 +120,61 @@ def _knowledge_score(request: GenerateRequest, response: GenerateResponse) -> fl
     return 0.0
 
 
+def _acceptance_keyword_gaps(
+    request: GenerateRequest,
+    response: GenerateResponse,
+) -> list[str]:
+    request_text = _normalize_keyword_text(
+        " ".join(
+            [
+                request.description,
+                *[chunk.content for chunk in response.retrieved_context],
+            ]
+        )
+    )
+    case_text = " ".join(
+        " ".join(
+            [
+                case.title,
+                case.precondition,
+                *case.steps,
+                *case.expected,
+                case.type.value,
+            ]
+        )
+        for case in response.cases
+    )
+    case_text = _normalize_keyword_text(case_text)
+    checks = [
+        ("disabled 用户", ("disabled", "禁用"), ("disabled", "禁用")),
+        ("deleted 用户", ("deleted", "删除"), ("deleted", "删除")),
+        ("access_token 有效期", ("access_token", "2小时"), ("access_token", "2小时")),
+        ("refresh_token 有效期", ("refresh_token", "7天", "30天"), ("refresh_token", "7天", "30天")),
+        ("管理员权限", ("管理员", "管理首页"), ("管理员", "管理首页")),
+        ("普通用户权限", ("普通用户", "普通首页"), ("普通用户", "普通首页")),
+        ("审计日志", ("审计", "日志"), ("user_id", "user_agent", "result", "reason", "created_at")),
+        ("SQL 注入", ("sql注入",), ("sql注入",)),
+        ("暴力破解", ("暴力破解",), ("暴力破解", "高频密码错误", "连续5次密码错误", "锁定或限制")),
+        ("账号枚举", ("枚举",), ("枚举",)),
+        ("token 泄露", ("token泄露", "token不能出现在", "token不出现在"), ("token泄露", "token不能出现在", "token不出现在")),
+        ("验证码不累计密码错误次数", ("不累计", "错误次数"), ("不累计", "错误次数")),
+        ("账号锁定阈值", ("5次", "15分钟"), ("5次", "15分钟")),
+        ("二次短信验证码", ("二次", "短信验证码"), ("二次", "短信验证码")),
+    ]
+
+    gaps: list[str] = []
+    for label, request_terms, case_terms in checks:
+        if not any(term in request_text for term in request_terms):
+            continue
+        if not any(term in case_text for term in case_terms):
+            gaps.append(label)
+    return gaps
+
+
+def _normalize_keyword_text(value: str) -> str:
+    return "".join(value.lower().split())
+
+
 def _grade(score: int) -> str:
     if score >= 85:
         return "excellent"
@@ -132,6 +191,7 @@ def _build_feedback(
     case_count: int,
     duplicate_title_count: int,
     missing_target_types: list[TestCaseType],
+    acceptance_keyword_gaps: list[str],
     average_steps: float,
     average_expected: float,
     knowledge_grounded: bool,
@@ -149,6 +209,10 @@ def _build_feedback(
         warnings.append("missing_target_types")
         missing = ", ".join(item.value for item in missing_target_types)
         recommendations.append(f"补充缺失的用例类型：{missing}。")
+    if acceptance_keyword_gaps:
+        warnings.append("missing_acceptance_keywords")
+        missing = "、".join(acceptance_keyword_gaps)
+        recommendations.append(f"补充未覆盖的关键验收点：{missing}。")
     if average_steps < 2:
         warnings.append("steps_too_shallow")
         recommendations.append("为每条用例补充更完整的操作步骤。")

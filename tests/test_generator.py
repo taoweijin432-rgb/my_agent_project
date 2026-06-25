@@ -1,7 +1,9 @@
+import importlib.util
+
 import pytest
 
 from app.core.config import Settings
-from app.models.test_case import GenerateRequest, KnowledgeChunk
+from app.models.test_case import GenerateRequest, KnowledgeChunk, TestCaseType as CaseType
 from app.services.generator import (
     GenerationBudgetExceededError,
     GenerationQualityGateError,
@@ -53,6 +55,7 @@ def _generator(
     rag: FakeRag | None = None,
     retries: int = 1,
     *,
+    workflow_backend: str = "local",
     review_retry_enabled: bool = False,
     review_min_score: int = 50,
     review_require_pass: bool = False,
@@ -63,6 +66,7 @@ def _generator(
     return GeneratorService(
         settings=Settings(
             zhipu_chat_model="fake-model",
+            agent_workflow_backend=workflow_backend,
             llm_max_retries=retries,
             agent_review_retry_enabled=review_retry_enabled,
             agent_review_min_score=review_min_score,
@@ -76,6 +80,165 @@ def _generator(
     )
 
 
+def test_generate_rejects_langgraph_backend_without_dependency() -> None:
+    if importlib.util.find_spec("langgraph"):
+        pytest.skip("langgraph is installed")
+    llm = FakeLLM([{"cases": [_case("不会被调用")]}])
+
+    with pytest.raises(RuntimeError) as error:
+        GeneratorService(
+            settings=Settings(agent_workflow_backend="langgraph"),
+            llm=llm,
+            rag=FakeRag(),
+        )
+
+    assert "requires the 'langgraph' package" in str(error.value)
+    assert llm.messages == []
+
+
+def test_langgraph_generate_success_with_context_and_metadata() -> None:
+    context = KnowledgeChunk(
+        content="JWT 登录需要返回角色和能力",
+        source="knowledge_export/api/auth_permissions.md",
+        document_type="api",
+        module="auth_permissions",
+        chunk=1,
+    )
+    llm = FakeLLM(
+        [
+            {
+                "cases": [
+                    _case("JWT 登录成功", case_type="functional"),
+                    _case("JWT 过期边界", case_type="boundary"),
+                    _case("JWT 无效异常", case_type="exception"),
+                ]
+            }
+        ]
+    )
+    rag = FakeRag([context])
+
+    response = _generator(llm, rag, workflow_backend="langgraph").generate(
+        GenerateRequest(
+            description="生成 JWT 登录测试用例",
+            max_cases=3,
+            knowledge_top_k=2,
+            include_context=True,
+            focus_types=[
+                CaseType.functional,
+                CaseType.boundary,
+                CaseType.exception,
+            ],
+        )
+    )
+
+    workflow_names = [step.name for step in response.metadata.workflow_steps]
+
+    assert rag.calls == [("生成 JWT 登录测试用例", 2)]
+    assert response.cases[0].title == "JWT 登录成功"
+    assert response.metadata.retrieved_chunks == 1
+    assert response.metadata.retrieved_sources == ["knowledge_export/api/auth_permissions.md"]
+    assert workflow_names[:4] == [
+        "analyze_requirement",
+        "retrieve_knowledge",
+        "route_after_retrieval",
+        "plan_test_strategy",
+    ]
+    assert "review_cases" in workflow_names
+    assert response.retrieved_context == [context]
+
+
+def test_generate_uses_langgraph_backend_by_default() -> None:
+    llm = FakeLLM([{"cases": [_case("默认 LangGraph 用例")]}])
+    rag = FakeRag()
+
+    response = GeneratorService(
+        settings=Settings(zhipu_chat_model="fake-model", llm_max_retries=0),
+        llm=llm,
+        rag=rag,
+    ).generate(GenerateRequest(description="生成登录测试用例", knowledge_top_k=0))
+
+    workflow_names = [step.name for step in response.metadata.workflow_steps]
+
+    assert response.cases[0].title == "默认 LangGraph 用例"
+    assert response.metadata.workflow_backend == "langgraph"
+    assert {step.backend for step in response.metadata.workflow_steps} == {"langgraph"}
+    assert workflow_names[:4] == [
+        "analyze_requirement",
+        "retrieve_knowledge",
+        "route_after_retrieval",
+        "plan_test_strategy",
+    ]
+
+
+def test_langgraph_rewrites_query_when_rag_context_is_insufficient() -> None:
+    context = KnowledgeChunk(
+        content="登录接口需要校验 JWT 角色权限",
+        source="knowledge/api/auth.md",
+        document_type="api",
+        module="auth",
+    )
+    llm = FakeLLM([{"cases": [_case("JWT 角色权限登录")]}])
+    rag = FakeRag(responses=[[], [context]])
+
+    response = _generator(llm, rag, workflow_backend="langgraph").generate(
+        GenerateRequest(
+            description="生成 JWT 登录测试用例",
+            knowledge_top_k=2,
+            include_context=True,
+        )
+    )
+
+    workflow_names = [step.name for step in response.metadata.workflow_steps]
+
+    assert rag.calls[0] == ("生成 JWT 登录测试用例", 2)
+    assert rag.calls[1][1] == 2
+    assert "检索补充关键词" in rag.calls[1][0]
+    assert "rewrite_query" in workflow_names
+    assert "retrieve_rewritten_knowledge" in workflow_names
+    assert response.metadata.retrieved_chunks == 1
+
+
+def test_langgraph_stops_before_llm_when_budget_gate_fails() -> None:
+    llm = FakeLLM([{"cases": [_case("不会被调用")]}])
+    rag = FakeRag([])
+
+    with pytest.raises(GenerationBudgetExceededError) as error:
+        _generator(
+            llm,
+            rag,
+            workflow_backend="langgraph",
+            budget_max_prompt_tokens=1,
+        ).generate(GenerateRequest(description="生成登录测试用例", knowledge_top_k=0))
+
+    assert error.value.usage.prompt_tokens_estimate > 1
+    assert llm.messages == []
+    assert rag.calls == []
+
+
+def test_langgraph_retries_after_validation_error() -> None:
+    llm = FakeLLM(
+        [
+            {"cases": [{"title": "缺少字段"}]},
+            {"cases": [_case("修复后的用例")]},
+        ]
+    )
+
+    response = _generator(
+        llm,
+        retries=1,
+        workflow_backend="langgraph",
+    ).generate(GenerateRequest(description="生成登录测试用例"))
+
+    validation_steps = [
+        step for step in response.metadata.workflow_steps if step.name == "validate_output"
+    ]
+
+    assert response.metadata.attempts == 2
+    assert [step.status for step in validation_steps] == ["failed", "success"]
+    assert response.cases[0].title == "修复后的用例"
+    assert "上一次输出需要修正" in llm.messages[1][1]["content"]
+
+
 def test_generate_success_with_context_and_metadata() -> None:
     context = KnowledgeChunk(
         content="JWT 登录需要返回角色和能力",
@@ -84,7 +247,17 @@ def test_generate_success_with_context_and_metadata() -> None:
         module="auth_permissions",
         chunk=1,
     )
-    llm = FakeLLM([{"cases": [_case("JWT 登录成功")]}])
+    llm = FakeLLM(
+        [
+            {
+                "cases": [
+                    _case("JWT 登录成功", case_type="functional"),
+                    _case("JWT 过期边界", case_type="boundary"),
+                    _case("JWT 无效异常", case_type="exception"),
+                ]
+            }
+        ]
+    )
     rag = FakeRag([context])
 
     response = _generator(llm, rag).generate(
@@ -93,6 +266,11 @@ def test_generate_success_with_context_and_metadata() -> None:
             max_cases=3,
             knowledge_top_k=2,
             include_context=True,
+            focus_types=[
+                CaseType.functional,
+                CaseType.boundary,
+                CaseType.exception,
+            ],
         )
     )
 
@@ -103,6 +281,7 @@ def test_generate_success_with_context_and_metadata() -> None:
     assert response.metadata.retrieved_chunks == 1
     assert response.metadata.retrieved_sources == ["knowledge_export/api/auth_permissions.md"]
     assert response.metadata.prompt_version == "test-case-generation-v1"
+    assert response.metadata.workflow_backend == "local"
     assert response.metadata.usage.prompt_characters > 0
     assert response.metadata.usage.completion_characters > 0
     assert response.metadata.usage.total_tokens_estimate > 0
@@ -120,6 +299,11 @@ def test_generate_success_with_context_and_metadata() -> None:
     assert "review_cases" in workflow_names
     assert "route_after_review" in workflow_names
     assert "estimate_usage" in workflow_names
+    budget_step = next(
+        step for step in response.metadata.workflow_steps if step.name == "check_budget"
+    )
+    assert budget_step.trace["prompt_tokens_estimate"] > 0
+    assert budget_step.trace["max_prompt_tokens"] == 0
     assert response.retrieved_context == [context]
 
 
@@ -152,6 +336,12 @@ def test_generate_rewrites_query_when_rag_context_is_insufficient() -> None:
     assert "rewrite_query" in workflow_names
     assert "retrieve_rewritten_knowledge" in workflow_names
     assert route_step.summary == "decision=rewrite_query, reason=insufficient_context"
+    assert route_step.trace == {
+        "decision": "rewrite_query",
+        "reason": "insufficient_context",
+        "retrieved_chunks": 0,
+        "top_k": 2,
+    }
     assert response.metadata.retrieved_chunks == 1
     assert response.retrieved_context == [context]
 
@@ -176,16 +366,19 @@ def test_generate_records_unavailable_context_when_query_rewrite_is_disabled() -
 
 def test_generate_stops_before_llm_when_budget_gate_fails() -> None:
     llm = FakeLLM([{"cases": [_case("不会被调用")]}])
+    rag = FakeRag([])
 
     with pytest.raises(GenerationBudgetExceededError) as error:
         _generator(
             llm,
+            rag,
             budget_max_prompt_tokens=1,
         ).generate(GenerateRequest(description="生成登录测试用例", knowledge_top_k=0))
 
     assert error.value.usage.prompt_tokens_estimate > 1
     assert error.value.usage.completion_tokens_estimate == 0
     assert llm.messages == []
+    assert rag.calls == []
 
 
 def test_generate_accepts_test_cases_alias() -> None:
@@ -267,8 +460,12 @@ def test_generate_retries_when_reviewer_requests_repair() -> None:
     assert response.metadata.review.passed is True
     assert "passed=False" in review_steps[0].summary
     assert "passed=True" in review_steps[1].summary
-    assert route_steps[0].summary == "decision=retry, reason=review_feedback"
+    assert route_steps[0].summary == "decision=retry, reason=coverage_repair"
+    assert route_steps[0].trace["reason"] == "coverage_repair"
+    assert route_steps[0].trace["missing_target_type_count"] > 0
     assert "Reviewer Agent 审查未通过" in llm.messages[1][1]["content"]
+    assert "覆盖修复要求" in llm.messages[1][1]["content"]
+    assert "必须替换低价值、重复或泛化用例" in llm.messages[1][1]["content"]
 
 
 def test_generate_blocks_low_quality_result_when_quality_gate_is_required() -> None:
@@ -296,6 +493,44 @@ def test_generate_blocks_low_quality_result_when_quality_gate_is_required() -> N
     assert detail["gate"] == "quality"
     assert detail["action_required"] == "human_review"
     assert detail["review"]["passed"] is False
+
+
+def test_generate_blocks_after_coverage_repair_retry_still_misses_acceptance() -> None:
+    llm = FakeLLM(
+        [
+            {"cases": [_case("只覆盖登录成功", "TC-001", "functional")]},
+            {
+                "cases": [
+                    _case("登录成功", "TC-001", "functional"),
+                    _case("通用安全防护", "TC-002", "security"),
+                ]
+            },
+        ]
+    )
+
+    with pytest.raises(GenerationQualityGateError) as error:
+        _generator(
+            llm,
+            retries=1,
+            review_retry_enabled=True,
+            review_require_pass=True,
+            review_min_score=70,
+        ).generate(
+            GenerateRequest(
+                description="登录需要覆盖 SQL 注入。",
+                max_cases=2,
+                knowledge_top_k=0,
+                focus_types=[CaseType.functional, CaseType.security],
+            )
+        )
+
+    assert len(llm.messages) == 2
+    assert "覆盖修复要求" in llm.messages[1][1]["content"]
+    assert "SQL 注入" in llm.messages[1][1]["content"]
+    assert error.value.review is not None
+    assert "missing_acceptance_keywords" in error.value.review.warnings
+    assert "SQL 注入" in error.value.review.missing_acceptance_keywords
+    assert error.value.to_detail()["code"] == "quality_gate_failed"
 
 
 def test_generate_truncates_to_max_cases() -> None:

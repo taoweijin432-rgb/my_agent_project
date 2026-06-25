@@ -2,7 +2,7 @@
 
 建议封版标签：`v0.2-async-hitl-baseline`
 
-封版目标：形成一个可演示、可集成、可放入 GitHub 仓库、可用于简历讲解的 RAG Agent 后端基线版本。该版本不是公网多租户生产最终态，后续升级重点是外部队列、生产数据库、真实 Agent 框架和可观测性。
+封版目标：形成一个可演示、可集成、可放入 GitHub 仓库、可用于简历讲解的 RAG Agent 后端基线版本。该版本不是公网多租户生产最终态，后续升级重点是生产数据库、队列治理、真实 Agent 框架和可观测性。
 
 ## 1. 封版范围
 
@@ -16,8 +16,9 @@
 - Reviewer Agent 本地质量审查和可选重试。
 - 预算门控、质量门控和结构化 human-in-the-loop 响应。
 - 门控事件持久化、待处理查询和人工审批/驳回闭环。
-- 生成历史 SQLite 持久化、详情回放和质量报告。
-- 异步生成任务队列、worker 并发控制和队列满 429 背压。
+- 生成历史数据库持久化、详情回放和质量报告。
+- 异步生成任务队列、Redis/RQ 外部队列、worker 进程和队列满 429 背压。
+- 默认 LangGraph workflow backend，`local` backend 保留为 fallback 和行为对照。
 - API key、CORS、应用内限流、请求 ID、耗时响应头、生产启动配置校验。
 - Dockerfile、Docker Compose 模板、运行配置示例和部署说明。
 - 项目说明、Agent 架构说明、RAG 评估说明、问题跟踪文档。
@@ -30,6 +31,33 @@
 .\.venv\Scripts\python.exe -m pytest -q
 git diff --check
 ```
+
+推荐使用统一发布检查入口：
+
+```bash
+./.venv/bin/python scripts/run_release_checks.py
+```
+
+该入口默认执行：
+
+- 隔离登录知识库导入。
+- 登录 RAG 固定评估，要求 source hit 和 keyword hit 均为 100%。
+- 核心 pytest 回归。
+- `git diff --check`。
+
+如需执行真实 LLM 强门控 smoke，显式增加：
+
+```bash
+./.venv/bin/python scripts/run_release_checks.py --include-llm-smoke
+```
+
+该模式会启动本地 FastAPI 服务并调用真实模型，验证不达标请求返回 `quality_gate_failed` 409、达标请求返回 200。它会消耗模型额度，不建议放入默认 CI。
+
+CI 验证：
+
+- `.github/workflows/ci.yml` 会在 push 和 pull request 时运行 `scripts/run_release_checks.py`。
+- 真实 LLM smoke 保留为 `workflow_dispatch` 手动触发，需勾选 `run_llm_smoke` 并配置 GitHub Secret：`ZHIPU_API_KEY`。
+- 不把真实 API key 写入 workflow 文件、README 或示例配置。
 
 敏感信息扫描：
 
@@ -71,20 +99,23 @@ git diff --check
 
 ## 4. 已知限制
 
-- 异步队列是进程内实现，不适合多进程或多实例共享任务状态。
-- SQLite 适合单机和受控部署，不适合作为高并发多租户生产数据库。
+- Redis/RQ 外部队列已接入；任务状态和生成历史写入当前数据库 backend。
+- 默认 SQLite 适合单机和受控部署，不适合作为高并发多租户生产数据库；MySQL backend 已实现并通过 smoke，但尚未切为生产默认。
 - 应用内限流是内存级限流，不能替代网关层限流。
 - 当前 Reviewer 主要是本地规则，不是大模型评审。
 - RAG 尚未接入 rerank、metadata filter 的完整查询策略和线上召回监控。
 - 当前没有用户体系、项目级权限隔离、RBAC 和多知识库授权。
 - 没有集中日志、metrics、告警和分布式链路追踪。
-- Docker 运行模板已提供，但当前机器未完成 Docker 实机验证。
+- Docker 轻量 Redis/RQ smoke 已完成实机验证；完整 ML/RAG 镜像仍需要在网络稳定环境做生产构建验证。
+- LangGraph backend 已完成最小服务级 smoke，并已切为默认 backend；`local` backend 仍可通过配置回退。
 
 ## 5. 不纳入本次封版
 
-- Redis/Celery/RQ 外部队列。
-- PostgreSQL 数据库迁移。
-- LangGraph 真实框架迁移。
+- Celery 或更严格的原子有界队列实现。
+- 将 MySQL 切为默认数据库 backend。
+- MySQL 备份恢复、Compose 服务模板、更长时间稳定性和高并发验证。
+- 深化 LangGraph checkpoint、interrupt、人审节点和 trace 能力。
+- LangGraph checkpoint、interrupt、人审节点和可视化 trace 深度集成。
 - 多用户权限系统。
 - 前端管理后台。
 - 与禅道、TestRail、飞书多维表格等平台的正式 adapter。
@@ -94,9 +125,9 @@ git diff --check
 
 推荐顺序：
 
-1. 外部队列：将 `InMemoryGenerationJobQueue` 替换为 Redis + RQ 或 Celery。
-2. 生产数据库：将生成历史、任务状态、门控审批从 SQLite 迁移到 PostgreSQL。
-3. Agent 框架：将 `WorkflowNode` 和 `GenerationWorkflowState` 映射到 LangGraph。
+1. 生产数据库：补齐 MySQL Compose 服务模板、备份恢复、连接池参数、稳定性验证，并评估是否切为默认 backend。
+2. Docker 生产硬化：完整 ML/RAG 镜像构建验证、非 root bind mount 权限说明、镜像体积和缓存策略。
+3. Agent 框架：在默认 LangGraph backend 上补齐 checkpoint、interrupt、人审节点和 trace 能力，并保留 `local` 回滚策略。
 4. RAG 增强：增加 metadata filter、rerank、固定评估集和召回指标。
 5. 可观测性：增加结构化日志、metrics、队列长度、失败率、LLM 成本和告警。
 6. 权限隔离：增加用户、项目、知识库权限和操作审计。

@@ -1,8 +1,7 @@
 import logging
-import time
 from functools import lru_cache
 from secrets import compare_digest
-from typing import Literal, NamedTuple
+from typing import Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -29,21 +28,33 @@ from app.models.test_case import (
     QueryResponse,
 )
 from app.services.excel_exporter import build_excel
+from app.services.generation_execution import (
+    GenerationExecutionResult,
+    execute_generation,
+)
 from app.services.generator import (
     GenerationGateError,
     OutputValidationError,
     TestCaseGenerator,
 )
 from app.services.generation_jobs import (
+    GenerationJobQueue,
     GenerationJobQueueFullError,
+    GenerationJobQueueUnavailableError,
     InMemoryGenerationJobQueue,
+    RedisRQGenerationJobQueue,
 )
 from app.services.history import (
     GenerationGateAlreadyResolvedError,
-    GenerationHistoryStore,
 )
 from app.services.llm import LLMClient, LLMError, MissingApiKeyError
 from app.services.rag import ChromaUnavailableError, RagService
+from app.services.stores import (
+    GenerationHistoryRepository,
+    GenerationJobRepository,
+    create_generation_history_store,
+    create_generation_job_store,
+)
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 logger = logging.getLogger("app.history")
@@ -67,11 +78,6 @@ router = APIRouter(dependencies=[Depends(require_api_key)])
 DEFAULT_EXPORT_FILENAME = "test-cases.xlsx"
 
 
-class _GenerationExecutionResult(NamedTuple):
-    response: GenerateResponse
-    record_id: str | None
-
-
 @lru_cache
 def _settings() -> Settings:
     return get_settings()
@@ -91,17 +97,25 @@ def _llm_client() -> LLMClient:
 
 
 @lru_cache
-def _history_store() -> GenerationHistoryStore:
-    return GenerationHistoryStore(_settings())
+def _history_store() -> GenerationHistoryRepository:
+    return create_generation_history_store(_settings())
 
 
 @lru_cache
-def _generation_job_queue() -> InMemoryGenerationJobQueue:
-    return InMemoryGenerationJobQueue(_settings(), _execute_generation_job)
+def _generation_job_store() -> GenerationJobRepository:
+    return create_generation_job_store(_settings())
+
+
+@lru_cache
+def _generation_job_queue() -> GenerationJobQueue:
+    settings = _settings()
+    if settings.generation_job_queue_backend == "rq":
+        return RedisRQGenerationJobQueue(settings, _generation_job_store())
+    return InMemoryGenerationJobQueue(settings, _execute_generation_job)
 
 
 def _generator() -> TestCaseGenerator:
-    return TestCaseGenerator(settings=_settings(), llm=_llm_client(), rag=_rag_service())
+    return TestCaseGenerator(settings=_settings(), llm=_llm_client(), rag=_rag_service)
 
 
 @router.post("/test-cases/generate", response_model=GenerateResponse, tags=["test-cases"])
@@ -124,6 +138,8 @@ def submit_generation_job(request: GenerateRequest) -> GenerationJobDetail:
         return _generation_job_queue().submit(request)
     except GenerationJobQueueFullError as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except GenerationJobQueueUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.get(
@@ -322,28 +338,14 @@ def _execute_generation(
     request: GenerateRequest,
     *,
     request_id: str | None,
-) -> _GenerationExecutionResult:
-    start = time.perf_counter()
-    try:
-        response = _generator().generate(request)
-    except (MissingApiKeyError, LLMError, GenerationGateError, OutputValidationError) as exc:
-        record_id = _record_generation_failure(
-            request,
-            exc,
-            start=start,
-            request_id=request_id,
-        )
-        setattr(exc, "record_id", record_id)
-        raise
-
-    duration_ms = (time.perf_counter() - start) * 1000
-    record_id = _record_generation_success(
+) -> GenerationExecutionResult:
+    return execute_generation(
         request,
-        response,
-        duration_ms=duration_ms,
         request_id=request_id,
+        generator_factory=_generator,
+        history_store_factory=_history_store,
+        logger=logger,
     )
-    return _GenerationExecutionResult(response=response, record_id=record_id)
 
 
 def _generation_http_exception(exc: Exception) -> HTTPException:
@@ -356,47 +358,6 @@ def _generation_http_exception(exc: Exception) -> HTTPException:
     if isinstance(exc, OutputValidationError):
         return HTTPException(status_code=502, detail=str(exc))
     return HTTPException(status_code=500, detail=str(exc))
-
-
-def _record_generation_success(
-    request: GenerateRequest,
-    response: GenerateResponse,
-    *,
-    duration_ms: float,
-    request_id: str | None,
-) -> str | None:
-    try:
-        return _history_store().record_success(
-            request,
-            response,
-            duration_ms=duration_ms,
-            request_id=request_id,
-        )
-    except Exception:
-        logger.exception("failed to persist generation success record")
-        return None
-
-
-def _record_generation_failure(
-    request: GenerateRequest,
-    exc: Exception,
-    *,
-    start: float,
-    request_id: str | None,
-) -> str | None:
-    try:
-        duration_ms = (time.perf_counter() - start) * 1000
-        return _history_store().record_failure(
-            request,
-            str(exc),
-            duration_ms=duration_ms,
-            request_id=request_id,
-            usage=getattr(exc, "usage", None),
-            gate=exc.to_detail() if isinstance(exc, GenerationGateError) else None,
-        )
-    except Exception:
-        logger.exception("failed to persist generation failure record")
-        return None
 
 
 def _content_disposition(filename: str) -> str:

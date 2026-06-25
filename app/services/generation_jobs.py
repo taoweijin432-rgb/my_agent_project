@@ -5,6 +5,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Protocol
 from uuid import uuid4
 
 from app.core.config import Settings
@@ -21,6 +22,7 @@ from app.services.generator import (
     OutputValidationError,
 )
 from app.services.llm import LLMError, MissingApiKeyError
+from app.services.stores import GenerationJobRepository, create_generation_job_store
 
 
 logger = logging.getLogger("app.generation_jobs")
@@ -29,6 +31,27 @@ GenerationJobRunner = Callable[[GenerateRequest, str], tuple[GenerateResponse, s
 
 class GenerationJobQueueFullError(RuntimeError):
     pass
+
+
+class GenerationJobQueueUnavailableError(RuntimeError):
+    pass
+
+
+class GenerationJobQueue(Protocol):
+    def submit(self, request: GenerateRequest) -> GenerationJobDetail:
+        pass
+
+    def get_job(self, job_id: str) -> GenerationJobDetail | None:
+        pass
+
+    def list_jobs(
+        self,
+        *,
+        limit: int = 20,
+        offset: int = 0,
+        status: str | None = None,
+    ) -> list[GenerationJobSummary]:
+        pass
 
 
 @dataclass
@@ -219,6 +242,88 @@ class InMemoryGenerationJobQueue:
         ]
         for job_id in expired_ids:
             del self._jobs[job_id]
+
+
+class RedisRQGenerationJobQueue:
+    def __init__(
+        self,
+        settings: Settings,
+        store: GenerationJobRepository | None = None,
+    ) -> None:
+        self.settings = settings
+        self.max_queue_size = settings.generation_job_max_queue_size
+        self.store = store or create_generation_job_store(settings)
+        try:
+            from redis import Redis
+            from redis.exceptions import RedisError
+            from rq import Queue
+        except ModuleNotFoundError as exc:
+            raise GenerationJobQueueUnavailableError(
+                "Redis/RQ dependencies are not installed. Install redis and rq."
+            ) from exc
+
+        self._redis_error_type = RedisError
+        self._connection = Redis.from_url(settings.redis_url)
+        self._queue = Queue(
+            settings.rq_queue_name,
+            connection=self._connection,
+            default_timeout=settings.rq_job_timeout_seconds,
+        )
+
+    def submit(self, request: GenerateRequest) -> GenerationJobDetail:
+        if self.store.count_active_jobs() >= self.max_queue_size:
+            raise GenerationJobQueueFullError("Generation job queue is full. Retry later.")
+
+        job = self.store.create_job(request, queue_backend="rq")
+        try:
+            rq_job = self._queue.enqueue_call(
+                func="app.workers.generation_rq.run_generation_job",
+                args=(job.id,),
+                job_id=job.id,
+                timeout=self.settings.rq_job_timeout_seconds,
+                result_ttl=self.settings.rq_result_ttl_seconds,
+                failure_ttl=self.settings.rq_failure_ttl_seconds,
+            )
+        except self._redis_error_type as exc:
+            self.store.mark_failed(
+                job.id,
+                error=GenerationJobError(
+                    code="queue_unavailable",
+                    message=str(exc),
+                    status_code=503,
+                ),
+            )
+            raise GenerationJobQueueUnavailableError(
+                "Generation job queue is unavailable. Retry later."
+            ) from exc
+        except Exception as exc:
+            self.store.mark_failed(
+                job.id,
+                error=GenerationJobError(
+                    code="queue_submit_failed",
+                    message=str(exc) or exc.__class__.__name__,
+                    status_code=503,
+                ),
+            )
+            raise GenerationJobQueueUnavailableError(
+                "Generation job queue submit failed. Retry later."
+            ) from exc
+
+        self.store.set_queue_job_id(job.id, rq_job.id)
+        persisted = self.store.get_job(job.id)
+        return persisted or job
+
+    def get_job(self, job_id: str) -> GenerationJobDetail | None:
+        return self.store.get_job(job_id)
+
+    def list_jobs(
+        self,
+        *,
+        limit: int = 20,
+        offset: int = 0,
+        status: str | None = None,
+    ) -> list[GenerationJobSummary]:
+        return self.store.list_jobs(limit=limit, offset=offset, status=status)
 
 
 def _utc_now() -> str:

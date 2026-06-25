@@ -28,7 +28,7 @@ def test_document_from_path_infers_metadata_from_knowledge_tree(
 
     document = _document_from_path(path)
 
-    assert document.source == "knowledge\\prd\\login\\phone-login.md"
+    assert document.source == "knowledge/prd/login/phone-login.md"
     assert document.document_type == "prd"
     assert document.module == "login"
     assert document.tags == ["prd", "login"]
@@ -46,7 +46,7 @@ def test_document_from_path_infers_metadata_from_knowledge_export_tree(
 
     document = _document_from_path(path)
 
-    assert document.source == "knowledge_export\\api\\auth_permissions.md"
+    assert document.source == "knowledge_export/api/auth_permissions.md"
     assert document.document_type == "api"
     assert document.module == "auth_permissions"
     assert document.tags == ["api", "auth_permissions"]

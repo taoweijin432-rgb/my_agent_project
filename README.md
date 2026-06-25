@@ -4,9 +4,26 @@
 
 项目理解文档见 [docs/project-guide.md](docs/project-guide.md)。
 部署与 GitHub 发布说明见 [docs/deployment.md](docs/deployment.md)。
+Linux 本机运行基线见 [docs/local-run.md](docs/local-run.md)。
+MySQL 迁移评估见 [docs/mysql-migration-plan.md](docs/mysql-migration-plan.md)。
+MySQL 初始化、备份与恢复见 [docs/mysql-operations.md](docs/mysql-operations.md)。
+LangGraph 迁移评估见 [docs/langgraph-migration-plan.md](docs/langgraph-migration-plan.md)。
 Agent 架构与面试技术点见 [docs/agent-architecture.md](docs/agent-architecture.md)。
 封版检查清单见 [docs/release-checklist.md](docs/release-checklist.md)。
 当前架构基线见 [docs/architecture-baseline.md](docs/architecture-baseline.md)。
+项目现状评估与后续路线见 [docs/project-readiness-roadmap.md](docs/project-readiness-roadmap.md)。
+
+## 当前状态
+
+当前版本是可运行的 LangGraph + RAG 测试用例生成基线，适合作为 GitHub 个人项目、简历项目和本地演示项目。它已经具备真实 API、知识库检索、测试用例生成、Reviewer 质量审查、强质量门控、异步任务、Redis/RQ worker、SQLite/MySQL 存储、Docker/Compose 和 CI 发布检查。
+
+已验证的封版基线：
+
+- 默认发布检查：登录 RAG 固定评估、核心 pytest 回归、`git diff --check`。
+- 真实链路 smoke：FastAPI + LangGraph + RAG + LLM + Reviewer 覆盖修复 + 强质量门控。
+- CI：push / pull request 执行确定性检查，手动 workflow 可选择真实 LLM smoke。
+
+项目仍不是完整生产级多租户平台。生产化还需要补充权限模型、审计闭环、监控告警、数据迁移策略、密钥管理和更完整的业务知识库。
 
 ## 功能
 
@@ -40,23 +57,35 @@ Agent 架构与面试技术点见 [docs/agent-architecture.md](docs/agent-archit
 
 `type` 可选值：`functional`、`boundary`、`exception`、`permission`、`compatibility`、`performance`、`security`。
 
-## 启动
+## 运行命令
 
-```powershell
-python -m pip install -r requirements.txt
-uvicorn app.main:app --reload
+以下命令默认在项目根目录执行。
+
+安装依赖：
+
+```bash
+python -m venv .venv
+./.venv/bin/python -m pip install -r requirements.txt
 ```
 
-也可以使用项目启动脚本：
+准备本机环境变量：
 
-```powershell
-python scripts/run_server.py --host 127.0.0.1 --port 8000
+```bash
+cp .env.runtime.example .env.runtime
 ```
 
-后台启动并写入日志：
+编辑 `.env.runtime`，至少替换 `APP_API_KEY` 和 `ZHIPU_API_KEY`。不要提交真实密钥。
 
-```powershell
-scripts\start_server.cmd
+启动 API：
+
+```bash
+./.venv/bin/python scripts/run_server.py --host 127.0.0.1 --port 8000
+```
+
+也可以直接使用 uvicorn：
+
+```bash
+./.venv/bin/python -m uvicorn app.main:app --reload
 ```
 
 打开接口文档：
@@ -65,7 +94,83 @@ scripts\start_server.cmd
 http://127.0.0.1:8000/docs
 ```
 
-Docker 运行：
+导入知识库：
+
+```bash
+./.venv/bin/python scripts/ingest_documents.py knowledge --recursive --reset
+```
+
+启动 Redis/RQ worker：
+
+```bash
+GENERATION_JOB_QUEUE_BACKEND=rq REDIS_URL=redis://127.0.0.1:6379/0 ./.venv/bin/python scripts/run_generation_worker.py
+```
+
+提交前发布检查：
+
+```bash
+./.venv/bin/python scripts/run_release_checks.py
+```
+
+更多封版检查说明见 [发布检查](#发布检查)。
+
+需要验证真实 LangGraph + RAG + LLM + 强质量门控时，手动运行：
+
+```bash
+./.venv/bin/python scripts/run_release_checks.py --include-llm-smoke
+```
+
+该模式会调用真实模型并消耗额度。
+
+Windows PowerShell 可使用同等命令：
+
+```powershell
+python scripts/run_server.py --host 127.0.0.1 --port 8000
+```
+
+Windows 后台启动并写入日志：
+
+```powershell
+scripts\start_server.cmd
+```
+
+## 发布检查
+
+本地封版或提交前建议运行：
+
+```bash
+./.venv/bin/python scripts/run_release_checks.py
+```
+
+默认会执行登录 RAG 固定评估、核心测试回归和 `git diff --check`，不会调用真实 LLM。
+
+需要验证真实 LangGraph + RAG + LLM + 强质量门控时，手动运行：
+
+```bash
+./.venv/bin/python scripts/run_release_checks.py --include-llm-smoke
+```
+
+该模式会调用真实模型并消耗额度。
+
+## CI
+
+仓库内置 GitHub Actions 配置：[.github/workflows/ci.yml](.github/workflows/ci.yml)。
+
+默认 CI 在 push 和 pull request 时执行确定性发布检查：
+
+- 登录 RAG 固定评估。
+- 核心 pytest 回归。
+- `git diff --check`。
+
+真实 LLM 强门控 smoke 不在默认 CI 中运行。需要时在 GitHub Actions 手动触发 `CI` workflow，勾选 `run_llm_smoke`，并在仓库 Secrets 中配置：
+
+```text
+ZHIPU_API_KEY
+```
+
+## Docker
+
+镜像运行：
 
 ```powershell
 docker build -t ai-testcase-generator .
@@ -78,6 +183,17 @@ docker run --rm -p 8000:8000 --env-file .env.runtime ai-testcase-generator
 docker compose up -d --build
 docker compose ps
 ```
+
+如果在 Linux 本机运行 API/worker，并复用 Docker Redis，按 [docs/local-run.md](docs/local-run.md) 操作。注意本机 Python 进程使用 `REDIS_URL=redis://127.0.0.1:6379/0`，Docker Compose 容器内部才使用 `REDIS_URL=redis://redis:6379/0`。
+
+Redis/RQ smoke test 可使用轻量 compose 覆盖文件，避免下载 RAG 相关重依赖：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.smoke.yml build
+REDIS_HOST_PORT=6380 docker compose -f docker-compose.yml -f docker-compose.smoke.yml up -d
+```
+
+该 smoke 环境会启动 API、worker 和 Redis；预算门控配置会让异步任务最终以 `error.code=budget_exceeded` 结束，用于验证 Redis/RQ 闭环且避免真实 LLM 调用。
 
 ## 配置
 
@@ -109,13 +225,23 @@ AGENT_QUERY_REWRITE_ENABLED
 AGENT_QUERY_REWRITE_MIN_CHUNKS
 AGENT_BUDGET_MAX_PROMPT_TOKENS
 AGENT_BUDGET_MAX_ESTIMATED_COST
+AGENT_WORKFLOW_BACKEND
+GENERATION_JOB_QUEUE_BACKEND
 GENERATION_JOB_MAX_WORKERS
 GENERATION_JOB_MAX_QUEUE_SIZE
 GENERATION_JOB_RETENTION_SECONDS
+REDIS_URL
+RQ_QUEUE_NAME
+RQ_JOB_TIMEOUT_SECONDS
+RQ_RESULT_TTL_SECONDS
+RQ_FAILURE_TTL_SECONDS
+GENERATION_JOB_STALE_AFTER_SECONDS
 RATE_LIMIT_ENABLED
 RATE_LIMIT_REQUESTS
 RATE_LIMIT_WINDOW_SECONDS
 REQUEST_LOG_ENABLED
+DATABASE_BACKEND
+DATABASE_URL
 GENERATION_HISTORY_ENABLED
 GENERATION_HISTORY_DB_PATH
 CORS_ALLOW_ORIGINS
@@ -132,7 +258,7 @@ X-API-Key: your-service-api-key
 
 应用默认对 `/api/v1/*` 启用内存级限流：每个调用方每 60 秒最多 60 次请求。可以通过 `RATE_LIMIT_ENABLED`、`RATE_LIMIT_REQUESTS` 和 `RATE_LIMIT_WINDOW_SECONDS` 调整。公网部署时仍建议在 API 网关或反向代理层增加限流、HTTPS 和访问日志。
 
-生成接口默认会把请求、响应摘要、完整响应 JSON、失败原因和耗时写入 SQLite：`GENERATION_HISTORY_DB_PATH=data/app.sqlite3`。该数据库属于运行数据，已被 `.gitignore` 排除；部署时应挂载到持久化数据盘。
+生成接口默认会把请求、响应摘要、完整响应 JSON、失败原因和耗时写入 SQLite：`DATABASE_BACKEND=sqlite`、`GENERATION_HISTORY_DB_PATH=data/app.sqlite3`。该数据库属于运行数据，已被 `.gitignore` 排除；部署时应挂载到持久化数据盘。需要使用 Docker MySQL 时，设置 `DATABASE_BACKEND=mysql` 和 `DATABASE_URL=mysql://agent_user:password@127.0.0.1:3306/agent?charset=utf8mb4`，并先执行 [docs/mysql-migration-plan.md](docs/mysql-migration-plan.md) 中的 schema 初始化步骤。
 
 生产环境应设置 `APP_ENV=production`。服务启动时会强制校验关键配置：真实 `APP_API_KEY`、真实 `ZHIPU_API_KEY`、HTTPS CORS 来源、非 `hash` embedding、启用本地模型文件、启用限流、启用请求日志、启用 Agent Reviewer、启用生成历史和持久化历史库路径。校验失败会直接拒绝启动。
 
@@ -149,6 +275,8 @@ EMBEDDING_LOCAL_FILES_ONLY=true
 不同 embedding 维度不能混用同一个 Chroma collection。切换模型时建议同步更换 `CHROMA_COLLECTION`，例如 `test_knowledge_bge_small_zh_v15`。
 
 生成链路默认开启本地 query rewrite。初次 RAG 召回少于 `AGENT_QUERY_REWRITE_MIN_CHUNKS` 时，系统会用需求、关注类型、风险类型和测试关键词扩展检索 query，并再检索一次。该过程不调用 LLM。
+
+`AGENT_WORKFLOW_BACKEND` 当前默认使用 `langgraph`，生成链路以 LangGraph 负责编排节点、条件边和重试路径。项目仍保留 `local` backend，作为无框架 fallback 和行为对照实现。基础依赖和轻量 smoke 依赖均已包含 LangGraph；`requirements-langgraph.txt` 保留为兼容入口。
 
 ## 导入知识库
 
@@ -288,7 +416,7 @@ curl -X GET "http://127.0.0.1:8000/api/v1/test-cases/generation-jobs/{job_id}" `
   -H "X-API-Key: your-service-api-key"
 ```
 
-任务状态包括 `queued`、`running`、`succeeded`、`failed`。当前实现是进程内队列，`GENERATION_JOB_MAX_WORKERS` 控制同时执行的生成任务数，`GENERATION_JOB_MAX_QUEUE_SIZE` 控制排队容量，队列满会返回 429。它能提升 HTTP 接单能力和长任务并发管理，但真实生成吞吐仍受 LLM 供应商限流、本机资源和 worker 数限制；多进程或多实例生产部署应替换为 Redis/Celery/RQ 这类外部队列。
+任务状态包括 `queued`、`running`、`succeeded`、`failed`。默认 `GENERATION_JOB_QUEUE_BACKEND=in_memory` 会使用进程内队列，适合本地开发和单机演示；设置 `GENERATION_JOB_QUEUE_BACKEND=rq` 后会使用 Redis/RQ 外部队列，并把任务状态写入当前数据库 backend。当前 `DATABASE_BACKEND=sqlite` 会写入 `GENERATION_HISTORY_DB_PATH` 指向的 SQLite 数据库。`GENERATION_JOB_MAX_QUEUE_SIZE` 控制提交背压，队列满会返回 429。worker 启动时会按 `GENERATION_JOB_STALE_AFTER_SECONDS` 把超时停留在 `running` 的任务标记为失败，避免任务永久卡住。直接在 WSL/本机 Python 运行时可使用 `REDIS_URL=redis://127.0.0.1:6379/0`；在 Docker Compose 内运行时使用 `REDIS_URL=redis://redis:6379/0`。
 
 生成响应和历史记录还会返回 `usage`。当前 usage 是本地估算值，包含 prompt/output 字符数、估算 token 数和可选估算费用。默认不计算费用；如果配置 `LLM_PROMPT_PRICE_PER_1K_TOKENS` 与 `LLM_COMPLETION_PRICE_PER_1K_TOKENS`，服务会按每千 token 单价计算 `estimated_cost`。
 

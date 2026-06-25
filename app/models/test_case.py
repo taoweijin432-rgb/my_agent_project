@@ -122,6 +122,8 @@ class GenerationReview(BaseModel):
     grade: Literal["excellent", "good", "fair", "poor"] = "poor"
     warnings: list[str] = Field(default_factory=list)
     recommendations: list[str] = Field(default_factory=list)
+    missing_target_types: list[TestCaseType] = Field(default_factory=list)
+    missing_acceptance_keywords: list[str] = Field(default_factory=list)
     retry_recommended: bool = False
 
 
@@ -164,6 +166,8 @@ class WorkflowStep(BaseModel):
     status: Literal["success", "failed", "skipped"]
     summary: str
     duration_ms: float
+    backend: str | None = None
+    trace: dict[str, Any] = Field(default_factory=dict)
 
 
 class GenerationMetadata(BaseModel):
@@ -172,6 +176,7 @@ class GenerationMetadata(BaseModel):
     retrieved_chunks: int
     retrieved_sources: list[str] = Field(default_factory=list)
     prompt_version: str = "test-case-generation-v1"
+    workflow_backend: str | None = None
     usage: GenerationUsage = Field(default_factory=GenerationUsage)
     review: GenerationReview | None = None
     workflow_steps: list[WorkflowStep] = Field(default_factory=list)
@@ -252,6 +257,7 @@ class GenerationQualityReport(BaseModel):
     average_steps: float
     average_expected: float
     knowledge_grounded: bool
+    missing_acceptance_keywords: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     recommendations: list[str] = Field(default_factory=list)
 

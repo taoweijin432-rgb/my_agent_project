@@ -16,7 +16,10 @@ build/
 !.env.runtime.example
 .model_cache/
 
-data/chroma/
+data/chroma*/
+data/**/*.db
+data/**/*.sqlite
+data/**/*.sqlite3
 data/*.db
 data/*.sqlite
 data/*.sqlite3

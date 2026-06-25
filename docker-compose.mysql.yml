@@ -1,0 +1,56 @@
+services:
+  mysql:
+    image: mysql:8.0
+    command:
+      [
+        "--character-set-server=utf8mb4",
+        "--collation-server=utf8mb4_unicode_ci",
+      ]
+    env_file:
+      - .env.runtime
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-replace-with-strong-root-password}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-agent}
+      MYSQL_USER: ${MYSQL_USER:-agent_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-your_agent_password}
+    ports:
+      - "127.0.0.1:${MYSQL_HOST_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./migrations/mysql/001_initial.sql:/docker-entrypoint-initdb.d/001_initial.sql:ro
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h 127.0.0.1 -u\"$${MYSQL_USER}\" -p\"$${MYSQL_PASSWORD}\" --silent",
+        ]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 10
+
+  api:
+    build:
+      args:
+        REQUIREMENTS_FILE: requirements-mysql.txt
+    environment:
+      DATABASE_BACKEND: mysql
+      DATABASE_URL: ${DATABASE_URL:-mysql://agent_user:your_agent_password@mysql:3306/agent?charset=utf8mb4}
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  worker:
+    build:
+      args:
+        REQUIREMENTS_FILE: requirements-mysql.txt
+    environment:
+      DATABASE_BACKEND: mysql
+      DATABASE_URL: ${DATABASE_URL:-mysql://agent_user:your_agent_password@mysql:3306/agent?charset=utf8mb4}
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+volumes:
+  mysql-data:

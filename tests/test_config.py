@@ -86,23 +86,45 @@ def test_settings_reads_agent_review_configuration(monkeypatch) -> None:
 def test_settings_reads_agent_budget_gate_configuration(monkeypatch) -> None:
     monkeypatch.setenv("AGENT_BUDGET_MAX_PROMPT_TOKENS", "1200")
     monkeypatch.setenv("AGENT_BUDGET_MAX_ESTIMATED_COST", "0.25")
+    monkeypatch.setenv("AGENT_WORKFLOW_BACKEND", "local")
 
     settings = get_settings()
 
     assert settings.agent_budget_max_prompt_tokens == 1200
     assert settings.agent_budget_max_estimated_cost == 0.25
+    assert settings.agent_workflow_backend == "local"
+
+
+def test_settings_defaults_to_langgraph_workflow_backend() -> None:
+    settings = get_settings()
+
+    assert settings.agent_workflow_backend == "langgraph"
 
 
 def test_settings_reads_generation_job_queue_configuration(monkeypatch) -> None:
+    monkeypatch.setenv("GENERATION_JOB_QUEUE_BACKEND", "rq")
     monkeypatch.setenv("GENERATION_JOB_MAX_WORKERS", "4")
     monkeypatch.setenv("GENERATION_JOB_MAX_QUEUE_SIZE", "250")
     monkeypatch.setenv("GENERATION_JOB_RETENTION_SECONDS", "7200")
+    monkeypatch.setenv("REDIS_URL", "redis://127.0.0.1:6379/1")
+    monkeypatch.setenv("RQ_QUEUE_NAME", "generation-test")
+    monkeypatch.setenv("RQ_JOB_TIMEOUT_SECONDS", "1200")
+    monkeypatch.setenv("RQ_RESULT_TTL_SECONDS", "1800")
+    monkeypatch.setenv("RQ_FAILURE_TTL_SECONDS", "3600")
+    monkeypatch.setenv("GENERATION_JOB_STALE_AFTER_SECONDS", "2400")
 
     settings = get_settings()
 
+    assert settings.generation_job_queue_backend == "rq"
     assert settings.generation_job_max_workers == 4
     assert settings.generation_job_max_queue_size == 250
     assert settings.generation_job_retention_seconds == 7200
+    assert settings.redis_url == "redis://127.0.0.1:6379/1"
+    assert settings.rq_queue_name == "generation-test"
+    assert settings.rq_job_timeout_seconds == 1200
+    assert settings.rq_result_ttl_seconds == 1800
+    assert settings.rq_failure_ttl_seconds == 3600
+    assert settings.generation_job_stale_after_seconds == 2400
 
 
 def test_settings_reads_agent_query_rewrite_configuration(monkeypatch) -> None:
@@ -157,11 +179,15 @@ def test_settings_falls_back_for_invalid_rate_limit_values(monkeypatch) -> None:
 
 def test_settings_reads_generation_history_configuration(monkeypatch) -> None:
     monkeypatch.setenv("GENERATION_HISTORY_ENABLED", "false")
+    monkeypatch.setenv("DATABASE_BACKEND", "sqlite")
+    monkeypatch.setenv("DATABASE_URL", "mysql://qa:secret@localhost:3306/agent")
     monkeypatch.setenv("GENERATION_HISTORY_DB_PATH", "data/history-test.sqlite3")
 
     settings = get_settings()
 
     assert settings.generation_history_enabled is False
+    assert settings.database_backend == "sqlite"
+    assert settings.database_url == "mysql://qa:secret@localhost:3306/agent"
     assert settings.generation_history_db_path == "data/history-test.sqlite3"
 
 
@@ -217,3 +243,54 @@ def test_production_validation_rejects_disabled_runtime_guards() -> None:
     assert any("REQUEST_LOG_ENABLED" in error for error in errors)
     assert any("GENERATION_HISTORY_ENABLED" in error for error in errors)
     assert any("GENERATION_HISTORY_DB_PATH" in error for error in errors)
+
+
+def test_production_validation_rejects_unknown_workflow_backend() -> None:
+    errors = validate_production_settings(
+        Settings(
+            app_env="prod",
+            app_api_key="prod-service-key-1234567890",
+            zhipu_api_key="prod-zhipu-key-1234567890",
+            cors_allow_origins=["https://qa.example.com"],
+            embedding_provider="sentence_transformers",
+            embedding_local_files_only=True,
+            generation_history_db_path="data/app.sqlite3",
+            agent_workflow_backend="unknown",
+        )
+    )
+
+    assert any("AGENT_WORKFLOW_BACKEND" in error for error in errors)
+
+
+def test_production_validation_rejects_unknown_database_backend() -> None:
+    errors = validate_production_settings(
+        Settings(
+            app_env="prod",
+            app_api_key="prod-service-key-1234567890",
+            zhipu_api_key="prod-zhipu-key-1234567890",
+            cors_allow_origins=["https://qa.example.com"],
+            embedding_provider="sentence_transformers",
+            embedding_local_files_only=True,
+            database_backend="oracle",
+            generation_history_db_path="data/app.sqlite3",
+        )
+    )
+
+    assert any("DATABASE_BACKEND" in error for error in errors)
+
+
+def test_production_validation_requires_database_url_for_mysql() -> None:
+    errors = validate_production_settings(
+        Settings(
+            app_env="prod",
+            app_api_key="prod-service-key-1234567890",
+            zhipu_api_key="prod-zhipu-key-1234567890",
+            cors_allow_origins=["https://qa.example.com"],
+            embedding_provider="sentence_transformers",
+            embedding_local_files_only=True,
+            database_backend="mysql",
+            database_url=None,
+        )
+    )
+
+    assert any("DATABASE_URL" in error for error in errors)

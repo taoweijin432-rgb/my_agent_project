@@ -1,0 +1,66 @@
+[
+  {
+    "id": "login-account-status",
+    "query": "登录 active disabled deleted 用户状态",
+    "expected_sources": [
+      "knowledge/prd/login/login-prd.md",
+      "knowledge/prd/login/login-acceptance-matrix.md"
+    ],
+    "expected_keywords": ["active", "disabled", "deleted", "不签发任何 token", "不能暴露账号是否存在"]
+  },
+  {
+    "id": "login-password-boundary-lock",
+    "query": "登录 密码长度 7 8 32 33 连续 5 次错误 锁定 15 分钟",
+    "expected_sources": [
+      "knowledge/prd/login/login-prd.md",
+      "knowledge/prd/login/login-acceptance-matrix.md"
+    ],
+    "expected_keywords": ["7 位", "8 位", "32 位", "33 位", "5 次", "15 分钟"]
+  },
+  {
+    "id": "login-captcha-counter",
+    "query": "登录 验证码错误 不累计密码错误次数 二次短信验证码",
+    "expected_sources": [
+      "knowledge/prd/login/login-prd.md",
+      "knowledge/prd/login/login-acceptance-matrix.md"
+    ],
+    "expected_keywords": ["验证码错误", "不累计密码错误次数", "连续 3 次密码错误", "二次短信验证码"]
+  },
+  {
+    "id": "login-token",
+    "query": "登录 access_token refresh_token 有效期 token 泄露",
+    "expected_sources": [
+      "knowledge/prd/login/login-prd.md",
+      "knowledge/api/login/login-api-contract.md",
+      "knowledge/security/login/login-security-baseline.md"
+    ],
+    "expected_keywords": ["access_token", "refresh_token", "2 小时", "7 天", "token 不出现在 URL", "token 不写入应用日志"]
+  },
+  {
+    "id": "login-permission",
+    "query": "登录 管理员 普通用户 管理首页 用户管理入口",
+    "expected_sources": [
+      "knowledge/prd/login/login-prd.md",
+      "knowledge/prd/login/login-acceptance-matrix.md"
+    ],
+    "expected_keywords": ["管理员", "普通用户", "管理首页", "用户管理入口"]
+  },
+  {
+    "id": "login-security",
+    "query": "登录 SQL 注入 暴力破解 账号枚举",
+    "expected_sources": [
+      "knowledge/security/login/login-security-baseline.md",
+      "knowledge/prd/login/login-acceptance-matrix.md"
+    ],
+    "expected_keywords": ["SQL 注入", "暴力破解", "账号枚举", "通用登录失败提示", "不能无限尝试"]
+  },
+  {
+    "id": "login-audit",
+    "query": "登录 审计日志 user_id ip user_agent result reason created_at",
+    "expected_sources": [
+      "knowledge/audit/login/login-audit-log.md",
+      "knowledge/prd/login/login-acceptance-matrix.md"
+    ],
+    "expected_keywords": ["user_id", "ip", "user_agent", "result", "reason", "created_at"]
+  }
+]

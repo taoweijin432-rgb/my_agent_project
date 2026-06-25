@@ -120,13 +120,23 @@ class Settings:
     agent_query_rewrite_min_chunks: int = 1
     agent_budget_max_prompt_tokens: int = 0
     agent_budget_max_estimated_cost: float = 0.0
+    agent_workflow_backend: str = "langgraph"
+    generation_job_queue_backend: str = "in_memory"
     generation_job_max_workers: int = 2
     generation_job_max_queue_size: int = 100
     generation_job_retention_seconds: int = 3600
+    redis_url: str = "redis://127.0.0.1:6379/0"
+    rq_queue_name: str = "generation"
+    rq_job_timeout_seconds: int = 900
+    rq_result_ttl_seconds: int = 3600
+    rq_failure_ttl_seconds: int = 86400
+    generation_job_stale_after_seconds: int = 1800
     rate_limit_enabled: bool = True
     rate_limit_requests: int = 60
     rate_limit_window_seconds: int = 60
     request_log_enabled: bool = True
+    database_backend: str = "sqlite"
+    database_url: str | None = None
     generation_history_enabled: bool = True
     generation_history_db_path: str = "data/app.sqlite3"
     cors_allow_origins: list[str] = field(
@@ -287,6 +297,18 @@ def get_settings() -> Settings:
             0.0,
             minimum=0.0,
         ),
+        agent_workflow_backend=(
+            _get_config_value(legacy, "AGENT_WORKFLOW_BACKEND", default="langgraph")
+            or "langgraph"
+        ).strip().lower(),
+        generation_job_queue_backend=(
+            _get_config_value(
+                legacy,
+                "GENERATION_JOB_QUEUE_BACKEND",
+                default="in_memory",
+            )
+            or "in_memory"
+        ).strip().lower(),
         generation_job_max_workers=_get_int(
             _get_config_value(legacy, "GENERATION_JOB_MAX_WORKERS"),
             2,
@@ -301,6 +323,38 @@ def get_settings() -> Settings:
             _get_config_value(legacy, "GENERATION_JOB_RETENTION_SECONDS"),
             3600,
             minimum=60,
+        ),
+        redis_url=_get_config_value(
+            legacy,
+            "REDIS_URL",
+            default="redis://127.0.0.1:6379/0",
+        )
+        or "redis://127.0.0.1:6379/0",
+        rq_queue_name=_get_config_value(
+            legacy,
+            "RQ_QUEUE_NAME",
+            default="generation",
+        )
+        or "generation",
+        rq_job_timeout_seconds=_get_int(
+            _get_config_value(legacy, "RQ_JOB_TIMEOUT_SECONDS"),
+            900,
+            minimum=1,
+        ),
+        rq_result_ttl_seconds=_get_int(
+            _get_config_value(legacy, "RQ_RESULT_TTL_SECONDS"),
+            3600,
+            minimum=0,
+        ),
+        rq_failure_ttl_seconds=_get_int(
+            _get_config_value(legacy, "RQ_FAILURE_TTL_SECONDS"),
+            86400,
+            minimum=0,
+        ),
+        generation_job_stale_after_seconds=_get_int(
+            _get_config_value(legacy, "GENERATION_JOB_STALE_AFTER_SECONDS"),
+            1800,
+            minimum=0,
         ),
         rate_limit_enabled=_get_bool(
             _get_config_value(legacy, "RATE_LIMIT_ENABLED"),
@@ -320,6 +374,10 @@ def get_settings() -> Settings:
             _get_config_value(legacy, "REQUEST_LOG_ENABLED"),
             True,
         ),
+        database_backend=(
+            _get_config_value(legacy, "DATABASE_BACKEND", default="sqlite") or "sqlite"
+        ).strip().lower(),
+        database_url=_get_config_value(legacy, "DATABASE_URL"),
         generation_history_enabled=_get_bool(
             _get_config_value(legacy, "GENERATION_HISTORY_ENABLED"),
             True,
@@ -393,8 +451,21 @@ def validate_production_settings(settings: Settings) -> list[str]:
         errors.append("AGENT_REVIEW_MIN_SCORE must be between 0 and 100.")
     if not settings.generation_history_enabled:
         errors.append("GENERATION_HISTORY_ENABLED must be true in production.")
-    if settings.generation_history_db_path.strip() in {"", ":memory:"}:
+    if settings.database_backend not in {"sqlite", "mysql"}:
+        errors.append("DATABASE_BACKEND must be 'sqlite' or 'mysql'.")
+    if settings.database_backend == "mysql" and not settings.database_url:
+        errors.append("DATABASE_URL must be configured when DATABASE_BACKEND=mysql.")
+    if (
+        settings.database_backend == "sqlite"
+        and settings.generation_history_db_path.strip() in {"", ":memory:"}
+    ):
         errors.append("GENERATION_HISTORY_DB_PATH must point to a persistent database file.")
+    if settings.generation_job_queue_backend not in {"in_memory", "rq"}:
+        errors.append("GENERATION_JOB_QUEUE_BACKEND must be 'in_memory' or 'rq'.")
+    if settings.agent_workflow_backend not in {"local", "langgraph"}:
+        errors.append("AGENT_WORKFLOW_BACKEND must be 'local' or 'langgraph'.")
+    if settings.generation_job_queue_backend == "rq" and not settings.redis_url:
+        errors.append("REDIS_URL must be configured when GENERATION_JOB_QUEUE_BACKEND=rq.")
     return errors
 
 
