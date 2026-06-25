@@ -89,7 +89,7 @@
     "query": "历史测试覆盖 已知缺口 补充测试用例 风险缺口",
     "expected_sources": [
       "knowledge_export/risks/test_coverage_and_known_gaps.md",
-      "knowledge/guidelines/personal-project-test-standard.md"
+      "knowledge/guidelines/project-test-standard.md"
     ],
     "expected_keywords": ["覆盖", "缺口", "测试用例"]
   },
@@ -103,7 +103,7 @@
   },
   {
     "id": "acceptance-criteria-template",
-    "query": "个人项目 验收标准 Given When Then 模块验收模板",
+    "query": "项目 验收标准 Given When Then 模块验收模板",
     "expected_sources": [
       "knowledge/guidelines/acceptance-criteria-template.md"
     ],

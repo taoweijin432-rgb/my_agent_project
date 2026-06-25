@@ -1,6 +1,6 @@
-# 部署与 GitHub 发布说明
+# 部署说明
 
-这份文档用于把项目整理到可部署、可放入 GitHub 仓库的最低标准。当前项目适合做内网服务、个人项目集成或受控测试环境，不建议直接裸露到公网。
+这份文档用于说明项目的本地运行、容器运行和发布前配置要求。当前项目适合做个人项目、内网服务、受控测试环境或小型系统集成，不建议直接裸露到公网。
 
 ## 1. 必要配置
 
@@ -251,7 +251,7 @@ EMBEDDING_PROVIDER=hash CHROMA_PATH=data/chroma-login-rag-eval CHROMA_COLLECTION
   --fail-under-keyword-hit-rate 1.0
 ```
 
-## 5. GitHub 发布检查
+## 5. 发布检查
 
 初始化仓库前先确认这些路径不会提交：
 

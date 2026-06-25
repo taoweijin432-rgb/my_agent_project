@@ -241,8 +241,8 @@
 - 状态：`done`
 - 位置：`app/services/agent_workflow.py`、`app/services/generator.py`、`docs/agent-architecture.md`
 - 影响：此前生成链路虽然已有 RAG、Prompt、LLM、校验和历史记录，但从代码和响应上看仍像线性服务调用，不利于解释 Agent 状态、节点职责、失败定位和后续迁移 LangGraph。
-- 建议：先实现轻量工作流节点和 workflow trace，不急于引入重框架；同时维护一份文档解释记忆架构、上下文压缩、工作流设计、RAG、Tool Calling、评估和面试常见问题。
-- 修复：新增 `WorkflowRecorder`、需求分析节点、测试策略规划节点；生成响应的 `metadata.workflow_steps` 返回节点轨迹；Prompt 注入测试策略规划；新增 `docs/agent-architecture.md` 讲解 Agent 架构和面试技术点。
+- 建议：先实现轻量工作流节点和 workflow trace，不急于引入重框架；同时维护一份文档解释记忆架构、上下文压缩、工作流设计、RAG、Tool Calling 和评估方案。
+- 修复：新增 `WorkflowRecorder`、需求分析节点、测试策略规划节点；生成响应的 `metadata.workflow_steps` 返回节点轨迹；Prompt 注入测试策略规划；新增 `docs/agent-architecture.md` 讲解 Agent 架构。
 - 验证：`.\.venv\Scripts\python.exe -m pytest -q` 结果为 `73 passed, 3 warnings`。
 
 ### ISSUE-020 Agent 工作流缺少显式状态对象和节点抽象，后续迁移框架成本偏高
