@@ -1,29 +1,33 @@
 # AI 测试用例生成助手
 
-将自然语言需求、PRD 或历史用例知识库转换为结构化测试用例。服务使用 FastAPI 暴露接口，调用智谱大模型 JSON Mode，并通过 Chroma 检索企业知识约束输出。
+AI 测试用例生成助手用于将自然语言需求、PRD 或历史用例知识库转换为结构化测试用例。服务通过 FastAPI 暴露 REST API，使用 LangGraph 编排生成链路，通过 Chroma 检索知识库，并调用智谱大模型 JSON Mode 生成可导出、可审查的测试用例。
 
-项目理解文档见 [docs/project-guide.md](docs/project-guide.md)。
-部署与 GitHub 发布说明见 [docs/deployment.md](docs/deployment.md)。
-Linux 本机运行基线见 [docs/local-run.md](docs/local-run.md)。
-MySQL 迁移评估见 [docs/mysql-migration-plan.md](docs/mysql-migration-plan.md)。
-MySQL 初始化、备份与恢复见 [docs/mysql-operations.md](docs/mysql-operations.md)。
-LangGraph 迁移评估见 [docs/langgraph-migration-plan.md](docs/langgraph-migration-plan.md)。
-Agent 架构与面试技术点见 [docs/agent-architecture.md](docs/agent-architecture.md)。
-封版检查清单见 [docs/release-checklist.md](docs/release-checklist.md)。
-当前架构基线见 [docs/architecture-baseline.md](docs/architecture-baseline.md)。
-项目现状评估与后续路线见 [docs/project-readiness-roadmap.md](docs/project-readiness-roadmap.md)。
+## 项目状态
 
-## 当前状态
+当前版本是可运行的 LangGraph + RAG 测试用例生成基线，已经包含 API 服务、知识库检索、测试用例生成、Reviewer 质量审查、质量门控、异步任务、Redis/RQ worker、SQLite/MySQL 存储、Docker/Compose 和 CI 发布检查。
 
-当前版本是可运行的 LangGraph + RAG 测试用例生成基线，适合作为 GitHub 个人项目、简历项目和本地演示项目。它已经具备真实 API、知识库检索、测试用例生成、Reviewer 质量审查、强质量门控、异步任务、Redis/RQ worker、SQLite/MySQL 存储、Docker/Compose 和 CI 发布检查。
+已验证的基线：
 
-已验证的封版基线：
-
-- 默认发布检查：登录 RAG 固定评估、核心 pytest 回归、`git diff --check`。
-- 真实链路 smoke：FastAPI + LangGraph + RAG + LLM + Reviewer 覆盖修复 + 强质量门控。
+- 发布检查：登录 RAG 固定评估、核心 pytest 回归、`git diff --check`。
+- 真实链路 smoke：FastAPI + LangGraph + RAG + LLM + Reviewer 覆盖修复 + 质量门控。
 - CI：push / pull request 执行确定性检查，手动 workflow 可选择真实 LLM smoke。
 
-项目仍不是完整生产级多租户平台。生产化还需要补充权限模型、审计闭环、监控告警、数据迁移策略、密钥管理和更完整的业务知识库。
+生产环境使用前仍建议补充权限模型、审计闭环、监控告警、数据迁移策略、密钥管理和完整业务知识库。
+
+## 相关文档
+
+- [项目说明](docs/project-guide.md)
+- [架构基线](docs/architecture-baseline.md)
+- [Agent 架构](docs/agent-architecture.md)
+- [本机运行](docs/local-run.md)
+- [部署说明](docs/deployment.md)
+- [发布检查](docs/release-checklist.md)
+- [RAG 评估](docs/rag-evaluation.md)
+- [MySQL 迁移方案](docs/mysql-migration-plan.md)
+- [MySQL 运维说明](docs/mysql-operations.md)
+- [LangGraph 迁移方案](docs/langgraph-migration-plan.md)
+- [Redis 队列评估](docs/redis-queue-feasibility.md)
+- [项目路线图](docs/project-readiness-roadmap.md)
 
 ## 功能
 
@@ -112,9 +116,9 @@ GENERATION_JOB_QUEUE_BACKEND=rq REDIS_URL=redis://127.0.0.1:6379/0 ./.venv/bin/p
 ./.venv/bin/python scripts/run_release_checks.py
 ```
 
-更多封版检查说明见 [发布检查](#发布检查)。
+更多发布检查说明见 [发布检查](#发布检查)。
 
-需要验证真实 LangGraph + RAG + LLM + 强质量门控时，手动运行：
+需要验证真实 LangGraph + RAG + LLM + 质量门控时，手动运行：
 
 ```bash
 ./.venv/bin/python scripts/run_release_checks.py --include-llm-smoke
@@ -136,7 +140,7 @@ scripts\start_server.cmd
 
 ## 发布检查
 
-本地封版或提交前建议运行：
+本地发布或提交前建议运行：
 
 ```bash
 ./.venv/bin/python scripts/run_release_checks.py
@@ -144,7 +148,7 @@ scripts\start_server.cmd
 
 默认会执行登录 RAG 固定评估、核心测试回归和 `git diff --check`，不会调用真实 LLM。
 
-需要验证真实 LangGraph + RAG + LLM + 强质量门控时，手动运行：
+需要验证真实 LangGraph + RAG + LLM + 质量门控时，手动运行：
 
 ```bash
 ./.venv/bin/python scripts/run_release_checks.py --include-llm-smoke
@@ -162,7 +166,7 @@ scripts\start_server.cmd
 - 核心 pytest 回归。
 - `git diff --check`。
 
-真实 LLM 强门控 smoke 不在默认 CI 中运行。需要时在 GitHub Actions 手动触发 `CI` workflow，勾选 `run_llm_smoke`，并在仓库 Secrets 中配置：
+真实 LLM 质量门控 smoke 不在默认 CI 中运行。需要时在 GitHub Actions 手动触发 `CI` workflow，勾选 `run_llm_smoke`，并在仓库 Secrets 中配置：
 
 ```text
 ZHIPU_API_KEY
