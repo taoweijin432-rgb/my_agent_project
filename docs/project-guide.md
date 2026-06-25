@@ -139,7 +139,7 @@ GET /api/v1/test-cases/generation-jobs
 GET /api/v1/test-cases/generation-jobs/{job_id}
 ```
 
-异步入口适合长需求文档、批量生成或前端不希望长时间等待 HTTP 响应的场景。提交接口返回 202 和任务详情，任务初始状态通常是 `queued`；后台 worker 会复用同步生成链路，继续执行 RAG、LLM 调用、Reviewer、门控和历史落库。
+异步入口适合长需求内容、批量生成或前端不希望长时间等待 HTTP 响应的场景。提交接口返回 202 和任务详情，任务初始状态通常是 `queued`；后台 worker 会复用同步生成链路，继续执行 RAG、LLM 调用、Reviewer、门控和历史落库。
 
 任务状态包括：
 

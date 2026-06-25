@@ -1,12 +1,12 @@
-# 封版检查清单
+# 发布检查清单
 
-建议封版标签：`v0.2-async-hitl-baseline`
+建议发布标签：`v0.2-async-hitl-baseline`
 
-封版目标：形成一个可运行、可集成、可发布的 RAG Agent 后端基线版本。该版本不是公网多租户生产最终态，后续升级重点是生产数据库、队列治理、Agent 框架和可观测性。
+发布目标：形成一个可运行、可集成、可发布的 RAG Agent 后端基线版本。该版本不是公网多租户生产最终态，后续升级重点是生产数据库、队列治理、Agent 框架和可观测性。
 
-## 1. 封版范围
+## 1. 发布范围
 
-本次封版包含：
+本次发布包含：
 
 - FastAPI REST API。
 - 智谱 LLM JSON Mode 调用封装。
@@ -21,9 +21,9 @@
 - 默认 LangGraph workflow backend，`local` backend 保留为 fallback 和行为对照。
 - API key、CORS、应用内限流、请求 ID、耗时响应头、生产启动配置校验。
 - Dockerfile、Docker Compose 模板、运行配置示例和部署说明。
-- 项目说明、Agent 架构说明、RAG 评估说明、问题跟踪文档。
+- 项目说明、Agent 架构说明、RAG 评估说明和部署文档。
 
-## 2. 封版前必须验证
+## 2. 发布前必须验证
 
 代码验证：
 
@@ -63,7 +63,7 @@ CI 验证：
 
 - 扫描真实服务 key、模型 key、云厂商 key 和 `.env/config.py` 泄漏。
 - 扫描范围覆盖 `.github`、示例环境文件、`app/`、`docs/`、`scripts/`、`tests/`、`README.md`、Docker 文件和依赖文件。
-- 不在文档中固化具体 key pattern，避免封版文档本身被扫描命令误报。
+- 不在文档中固化具体 key pattern，避免发布文档本身被扫描命令误报。
 
 当前允许的已知命中：
 
@@ -77,7 +77,7 @@ CI 验证：
 - `.venv/`、`.model_cache/`、`data/`、`logs/`、`knowledge_export/` 不提交。
 - 真实 API key 不进入 README、docs、tests、示例配置或提交记录。
 
-## 3. 封版验收标准
+## 3. 发布验收标准
 
 功能验收：
 
@@ -93,8 +93,8 @@ CI 验证：
 工程验收：
 
 - 全量测试通过。
-- 文档能解释项目定位、架构、配置、部署和升级路线。
-- 问题清单保留已修复项和剩余风险。
+- 文档能解释项目定位、架构、配置、部署和后续工作。
+- 已知限制和后续工作有明确说明。
 - Git 工作区干净。
 
 ## 4. 已知限制
@@ -109,7 +109,7 @@ CI 验证：
 - Docker 轻量 Redis/RQ smoke 已完成实机验证；完整 ML/RAG 镜像仍需要在网络稳定环境做生产构建验证。
 - LangGraph backend 已完成最小服务级 smoke，并已切为默认 backend；`local` backend 仍可通过配置回退。
 
-## 5. 不纳入本次封版
+## 5. 不纳入本次发布
 
 - Celery 或更严格的原子有界队列实现。
 - 将 MySQL 切为默认数据库 backend。
@@ -121,7 +121,7 @@ CI 验证：
 - 与禅道、TestRail、飞书多维表格等平台的正式 adapter。
 - 公网 HTTPS 网关、WAF、集中监控和告警。
 
-## 6. 封版后第一批升级
+## 6. 后续工作
 
 推荐顺序：
 
