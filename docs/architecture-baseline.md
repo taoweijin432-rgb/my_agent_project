@@ -40,6 +40,8 @@ Database Backend + Chroma Knowledge Base
 - `app/services/prompt.py`：Prompt 模板。
 - `app/services/reviewer.py`：Reviewer 节点和修复反馈。
 - `app/services/quality.py`：本地质量评分。
+- `app/services/coverage.py`：需求验收点到测试用例的覆盖率评估。
+- `app/services/pytest_exporter.py`：pytest 自动化模板导出。
 - `app/services/usage.py`：token 和费用估算。
 - `app/services/history.py`：SQLite 生成历史和门控处理实现。
 - `app/services/generation_job_store.py`：SQLite 异步任务状态实现。
@@ -144,6 +146,8 @@ estimate_usage
 - Dockerfile 和 Docker Compose 模板。
 - 运行数据、密钥、模型缓存、向量库和私有知识库忽略规则。
 - 生成历史和门控审计。
+- 需求覆盖率评估和缺口反馈。
+- Excel 与 pytest 模板导出。
 - 进程内异步任务队列、Redis/RQ 外部队列和队列满背压。
 - 数据库 backend 抽象，默认 SQLite，MySQL backend 已完成本机 Docker smoke。
 
@@ -164,14 +168,14 @@ estimate_usage
 - 保留 API 模型：`GenerationJobDetail`、`GenerationJobSummary`、`GenerationJobError`。
 - 保留 API 路径：`/test-cases/generation-jobs`。
 - 已新增 Redis/RQ adapter，并把任务状态写入配置化数据库 backend。
-- 默认 SQLite 适合单机部署；MySQL backend 已实现并通过 Redis/RQ worker smoke、备份恢复、Compose 模板和 5 任务稳定性 smoke，但生产默认切换仍需故障恢复和更长时长运行验证。
+- 默认 SQLite 适合单机部署；MySQL backend 已实现并通过 Redis/RQ worker smoke、备份恢复、Compose 模板、stale 恢复 smoke 和 5 任务稳定性 smoke，但生产默认切换仍需 Redis/MySQL 短暂不可用演练和更长时长运行验证。
 
 MySQL 现状：
 
 - 已保留 `GenerationHistoryStore` 对外方法语义，并新增 repository protocol/factory。
 - 已将 SQLite 运行表结构映射为 `migrations/mysql/001_initial.sql`。
 - 已把生成历史、门控处理、异步任务状态纳入 MySQL backend。
-- 当前默认仍是 `DATABASE_BACKEND=sqlite`；Compose MySQL 模板、备份恢复文档、端到端 smoke、恢复演练和 5 任务稳定性 smoke 已完成，生产切换前仍需要 worker crash、Redis/MySQL 短暂不可用和更长时长运行验证。
+- 当前默认仍是 `DATABASE_BACKEND=sqlite`；Compose MySQL 模板、备份恢复文档、端到端 smoke、stale 恢复 smoke、备份恢复演练和 5 任务稳定性 smoke 已完成，生产切换前仍需要 Redis/MySQL 短暂不可用和更长时长运行验证。
 
 LangGraph 升级：
 
@@ -187,6 +191,13 @@ RAG 升级：
 - 保留 `RagService.search()` 作为业务入口。
 - 增加 metadata filter、rerank、召回评估指标。
 - 避免把调用方直接绑定到具体向量库实现。
+
+测试质量升级：
+
+- 保留 `evaluate_requirement_coverage()` 作为确定性覆盖率评估入口。
+- 当前覆盖率评估基于关键词映射，适合作为缺口初筛，不替代人工验收。
+- 后续可以增加同义词、权重、语义相似度和人工确认回流。
+- pytest 导出当前是模板能力，后续可按业务接口增加可执行 adapter。
 
 ## 8. 发布判断
 

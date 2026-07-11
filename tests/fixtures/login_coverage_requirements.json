@@ -1,0 +1,50 @@
+[
+  {
+    "id": "REQ-LOGIN-001",
+    "title": "有效手机号和验证码登录成功",
+    "description": "用户输入已注册手机号和有效验证码后应登录成功。",
+    "keywords": ["已注册手机号", "有效验证码", "登录成功"],
+    "priority": "high",
+    "source": "knowledge/prd/login/login-prd.md"
+  },
+  {
+    "id": "REQ-LOGIN-002",
+    "title": "验证码 5 分钟有效期",
+    "description": "验证码超过 5 分钟后不能继续使用。",
+    "keywords": ["验证码", "5 分钟", "过期"],
+    "priority": "high",
+    "source": "knowledge/prd/login/login-prd.md"
+  },
+  {
+    "id": "REQ-LOGIN-003",
+    "title": "连续错误触发锁定",
+    "description": "连续 5 次输入错误验证码或密码后账号锁定 10 分钟。",
+    "keywords": ["连续 5 次", "错误", "锁定", "10 分钟"],
+    "priority": "critical",
+    "source": "knowledge/prd/login/login-prd.md"
+  },
+  {
+    "id": "REQ-LOGIN-004",
+    "title": "disabled 用户禁止登录",
+    "description": "disabled 用户不能登录，且不能签发 token。",
+    "keywords": ["disabled", "不能登录", "不签发", "token"],
+    "priority": "critical",
+    "source": "knowledge/prd/login/login-prd.md"
+  },
+  {
+    "id": "REQ-LOGIN-005",
+    "title": "token 泄露防护",
+    "description": "access_token 和 refresh_token 不能出现在 URL 和应用日志中。",
+    "keywords": ["access_token", "refresh_token", "不出现在 URL", "不写入应用日志"],
+    "priority": "critical",
+    "source": "knowledge/security/login/login-security-baseline.md"
+  },
+  {
+    "id": "REQ-LOGIN-006",
+    "title": "审计日志字段完整",
+    "description": "登录成功、失败和锁定都需要记录 user_id、ip、user_agent、result、reason、created_at。",
+    "keywords": ["user_id", "ip", "user_agent", "result", "reason", "created_at"],
+    "priority": "high",
+    "source": "knowledge/audit/login/login-audit-log.md"
+  }
+]

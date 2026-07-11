@@ -87,7 +87,8 @@ class SentenceTransformerEmbeddingFunction:
             from sentence_transformers import SentenceTransformer
         except ImportError as exc:
             raise ChromaUnavailableError(
-                "sentence-transformers is not installed. Run `pip install -r requirements.txt`."
+                "sentence-transformers is not installed. Install the optional semantic embedding dependencies "
+                "documented in docs/deployment.md."
             ) from exc
 
         self.model = SentenceTransformer(

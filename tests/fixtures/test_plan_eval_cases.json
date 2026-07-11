@@ -1,0 +1,37 @@
+[
+  {
+    "id": "refund-plan-001",
+    "description": "订单退款接口需要支持创建退款、幂等冲突和无权限拒绝。",
+    "requirements": [
+      {
+        "id": "REFUND-001",
+        "title": "创建退款 API",
+        "description": "POST /api/v1/refunds 创建退款，重复 idempotency_key 需要返回冲突。",
+        "keywords": ["POST /api/v1/refunds", "idempotency_key", "冲突"],
+        "priority": "critical"
+      },
+      {
+        "id": "REFUND-002",
+        "title": "退款权限校验",
+        "description": "没有退款权限的角色不能创建退款。",
+        "keywords": ["权限", "角色", "拒绝"],
+        "priority": "high"
+      }
+    ],
+    "expected": {
+      "tools": ["http"],
+      "test_types": ["exception", "permission"],
+      "risk_keywords": ["资金", "幂等"]
+    }
+  },
+  {
+    "id": "login-ui-plan-001",
+    "description": "登录页面需要支持手机号验证码表单，验证码错误时展示明确错误。",
+    "requirements": [],
+    "expected": {
+      "tools": ["playwright"],
+      "test_types": ["exception"],
+      "risk_keywords": []
+    }
+  }
+]

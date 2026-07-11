@@ -33,6 +33,28 @@ def test_settings_reads_app_environment(monkeypatch) -> None:
     assert settings.is_production is True
 
 
+def test_settings_reads_multiple_api_keys(monkeypatch) -> None:
+    monkeypatch.setenv("APP_API_KEY", "primary-service-key")
+    monkeypatch.setenv(
+        "APP_API_KEYS",
+        "primary-service-key, next-service-key , emergency-service-key",
+    )
+
+    settings = get_settings()
+
+    assert settings.app_api_key == "primary-service-key"
+    assert settings.app_api_keys == [
+        "primary-service-key",
+        "next-service-key",
+        "emergency-service-key",
+    ]
+    assert settings.accepted_api_keys == [
+        "primary-service-key",
+        "next-service-key",
+        "emergency-service-key",
+    ]
+
+
 def test_settings_disables_credentials_when_cors_origin_is_wildcard(monkeypatch) -> None:
     monkeypatch.setenv("CORS_ALLOW_ORIGINS", "*")
     monkeypatch.setenv("CORS_ALLOW_CREDENTIALS", "true")
@@ -127,6 +149,32 @@ def test_settings_reads_generation_job_queue_configuration(monkeypatch) -> None:
     assert settings.generation_job_stale_after_seconds == 2400
 
 
+def test_settings_reads_test_tool_pytest_configuration(monkeypatch) -> None:
+    monkeypatch.setenv(
+        "TEST_TOOL_HTTP_BASE_URL_ALLOWLIST",
+        "http://127.0.0.1:8000, http://localhost:8000",
+    )
+    monkeypatch.setenv("TEST_TOOL_ARTIFACT_DIR", "data/custom-artifacts")
+    monkeypatch.setenv("TEST_TOOL_ARTIFACT_MAX_BYTES", "4096")
+    monkeypatch.setenv("TEST_TOOL_ARTIFACT_RETENTION_SECONDS", "3600")
+    monkeypatch.setenv("TEST_TOOL_PYTEST_ENABLED", "true")
+    monkeypatch.setenv("TEST_TOOL_PYTEST_ALLOWED_PATHS", "tests,generated_tests")
+    monkeypatch.setenv("TEST_TOOL_PYTEST_TIMEOUT_SECONDS", "30")
+
+    settings = get_settings()
+
+    assert settings.test_tool_http_base_url_allowlist == [
+        "http://127.0.0.1:8000",
+        "http://localhost:8000",
+    ]
+    assert settings.test_tool_artifact_dir == "data/custom-artifacts"
+    assert settings.test_tool_artifact_max_bytes == 4096
+    assert settings.test_tool_artifact_retention_seconds == 3600
+    assert settings.test_tool_pytest_enabled is True
+    assert settings.test_tool_pytest_allowed_paths == ["tests", "generated_tests"]
+    assert settings.test_tool_pytest_timeout_seconds == 30
+
+
 def test_settings_reads_agent_query_rewrite_configuration(monkeypatch) -> None:
     monkeypatch.setenv("AGENT_QUERY_REWRITE_ENABLED", "false")
     monkeypatch.setenv("AGENT_QUERY_REWRITE_MIN_CHUNKS", "2")
@@ -158,6 +206,7 @@ def test_settings_reads_rate_limit_configuration(monkeypatch) -> None:
     monkeypatch.setenv("RATE_LIMIT_REQUESTS", "10")
     monkeypatch.setenv("RATE_LIMIT_WINDOW_SECONDS", "30")
     monkeypatch.setenv("REQUEST_LOG_ENABLED", "false")
+    monkeypatch.setenv("REQUEST_LOG_FORMAT", "json")
 
     settings = get_settings()
 
@@ -165,6 +214,7 @@ def test_settings_reads_rate_limit_configuration(monkeypatch) -> None:
     assert settings.rate_limit_requests == 10
     assert settings.rate_limit_window_seconds == 30
     assert settings.request_log_enabled is False
+    assert settings.request_log_format == "json"
 
 
 def test_settings_falls_back_for_invalid_rate_limit_values(monkeypatch) -> None:
@@ -220,6 +270,41 @@ def test_production_validation_accepts_hardened_settings() -> None:
     assert errors == []
 
 
+def test_production_validation_accepts_hardened_app_api_keys() -> None:
+    errors = validate_production_settings(
+        Settings(
+            app_env="production",
+            app_api_keys=[
+                "prod-service-key-current-123456",
+                "prod-service-key-next-123456",
+            ],
+            zhipu_api_key="prod-zhipu-key-1234567890",
+            cors_allow_origins=["https://qa.example.com"],
+            embedding_provider="sentence_transformers",
+            embedding_local_files_only=True,
+            generation_history_db_path="data/app.sqlite3",
+        )
+    )
+
+    assert errors == []
+
+
+def test_production_validation_rejects_weak_api_keys_in_list() -> None:
+    errors = validate_production_settings(
+        Settings(
+            app_env="production",
+            app_api_keys=["prod-service-key-current-123456", "example-next-key"],
+            zhipu_api_key="prod-zhipu-key-1234567890",
+            cors_allow_origins=["https://qa.example.com"],
+            embedding_provider="sentence_transformers",
+            embedding_local_files_only=True,
+            generation_history_db_path="data/app.sqlite3",
+        )
+    )
+
+    assert any("APP_API_KEY" in error and "APP_API_KEYS" in error for error in errors)
+
+
 def test_production_validation_rejects_disabled_runtime_guards() -> None:
     errors = validate_production_settings(
         Settings(
@@ -232,6 +317,7 @@ def test_production_validation_rejects_disabled_runtime_guards() -> None:
             agent_review_enabled=False,
             rate_limit_enabled=False,
             request_log_enabled=False,
+            request_log_format="plain",
             generation_history_enabled=False,
             generation_history_db_path=":memory:",
         )
@@ -241,6 +327,7 @@ def test_production_validation_rejects_disabled_runtime_guards() -> None:
     assert any("AGENT_REVIEW_ENABLED" in error for error in errors)
     assert any("RATE_LIMIT_ENABLED" in error for error in errors)
     assert any("REQUEST_LOG_ENABLED" in error for error in errors)
+    assert any("REQUEST_LOG_FORMAT" in error for error in errors)
     assert any("GENERATION_HISTORY_ENABLED" in error for error in errors)
     assert any("GENERATION_HISTORY_DB_PATH" in error for error in errors)
 

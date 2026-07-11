@@ -30,12 +30,12 @@ def test_mysql_initial_schema_contains_runtime_tables() -> None:
 
 def test_mysql_init_script_uses_optional_pymysql_dependency() -> None:
     script = (PROJECT_ROOT / "scripts" / "init_mysql.py").read_text(encoding="utf-8")
-    requirements = (PROJECT_ROOT / "requirements-mysql.txt").read_text(
+    requirements = (PROJECT_ROOT / "requirements.txt").read_text(
         encoding="utf-8"
     )
 
     assert "DATABASE_URL is required" in script
     assert "import pymysql" in script
-    assert "requirements-mysql.txt" in script
+    assert "requirements.txt" in script
     assert "mysql:// or mysql+pymysql://" in script
     assert "PyMySQL" in requirements

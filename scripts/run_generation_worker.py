@@ -10,6 +10,7 @@ if str(project_root) not in sys.path:
 
 from app.core.config import get_settings
 from app.workers.generation_rq import recover_stale_generation_jobs
+from app.workers.test_plan_execution_rq import recover_stale_test_plan_execution_jobs
 
 
 def main() -> None:
@@ -17,6 +18,12 @@ def main() -> None:
     recovered_job_ids = recover_stale_generation_jobs()
     if recovered_job_ids:
         print(f"Marked {len(recovered_job_ids)} stale generation jobs as failed.")
+    recovered_execution_job_ids = recover_stale_test_plan_execution_jobs()
+    if recovered_execution_job_ids:
+        print(
+            "Marked "
+            f"{len(recovered_execution_job_ids)} stale test plan execution jobs as failed."
+        )
     connection = Redis.from_url(settings.redis_url)
     queue = Queue(
         settings.rq_queue_name,

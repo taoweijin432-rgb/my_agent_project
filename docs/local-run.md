@@ -37,7 +37,7 @@ docker run -d --name agent-redis -p 6379:6379 redis:latest
 如果启用 MySQL，确认本机已安装可选依赖：
 
 ```bash
-uv pip install --python ./.venv/bin/python -r requirements-mysql.txt
+uv pip install --python ./.venv/bin/python -r requirements.txt
 ```
 
 ## 2. 配置
@@ -203,11 +203,11 @@ docker stop agent-redis
 
 本机开发/演示运行方式已经验证通过。Docker Compose 轻量 Redis/RQ smoke、MySQL store smoke 和 Redis/RQ + MySQL worker smoke 已验证通过；完整 ML/RAG 镜像构建仍受 `chromadb`、`numpy`、`onnxruntime` 等依赖下载影响，应在网络稳定环境单独验证。
 
-轻量 smoke 镜像通过 `requirements-smoke.txt` 和 `docker-compose.smoke.yml` 拆出。它用于验证 Redis/RQ 队列、API、worker 和数据库落库，不包含 `chromadb` 等 RAG 依赖；完整功能镜像仍使用 `requirements.txt`。
+smoke 验证复用统一 `docker-compose.yml`，通过环境变量把运行数据切到 Docker named volume；依赖仍统一来自 `requirements.txt`。
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.smoke.yml build
-REDIS_HOST_PORT=6380 docker compose -f docker-compose.yml -f docker-compose.smoke.yml up -d
+IMAGE_TAG=smoke APP_DATA_MOUNT=smoke-data MODEL_CACHE_MOUNT=smoke-model-cache docker compose build
+REDIS_HOST_PORT=6380 IMAGE_TAG=smoke APP_DATA_MOUNT=smoke-data MODEL_CACHE_MOUNT=smoke-model-cache docker compose up -d
 ```
 
 当前已验证的 smoke 预期结果：异步任务最终 `status=failed` 且 `error.code=budget_exceeded`，RQ 队列长度为 `0`，当前数据库 backend 中有对应 `generation_jobs` 和 `generation_records` 记录。`scripts/check_generation_queue.py` 可用于查看队列 registry、worker 心跳和业务表状态统计。默认 backend 仍是 SQLite；切到 MySQL 前需要先安装可选依赖并初始化 schema。

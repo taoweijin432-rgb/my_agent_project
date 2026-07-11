@@ -1,9 +1,11 @@
 import json
 
 from app.models.test_case import GenerateRequest, KnowledgeChunk
+from app.models.test_plan import TestPlanGenerationRequest
 
 
 PROMPT_TEMPLATE_VERSION = "test-case-generation-v1"
+TEST_PLAN_PROMPT_TEMPLATE_VERSION = "test-plan-generation-v1"
 
 
 SYSTEM_PROMPT = """你是资深软件测试架构师。你的任务是把需求描述转换为结构化测试用例。
@@ -123,6 +125,76 @@ Few-shot 输出：
     ]
 
 
+TEST_PLAN_SYSTEM_PROMPT = """你是资深测试架构师。你的任务是把需求、验收标准和知识库上下文转换为结构化测试计划。
+
+硬性要求：
+1. 只输出一个 JSON object，不要输出 Markdown、解释、注释或多余文本。
+2. JSON 顶层字段必须是 title, scope, steps。
+3. scope 必须包含 in_scope, out_of_scope, assumptions, risks，且四个字段都是字符串数组。
+4. steps 中每个步骤必须包含 id, title, objective, requirement_ids, test_types, priority, tool, tool_args, success_criteria。
+5. test_types 只能使用 functional, boundary, exception, permission, compatibility, performance, security。
+6. priority 只能使用 low, medium, high, critical。
+7. tool 只能使用 manual, http, pytest, playwright, sql, custom。
+8. tool_args 必须是 JSON object，不要放任意 shell 字符串。
+9. success_criteria 必须是可验证断言，不要只写“符合预期”。
+10. 不要编造企业知识库没有支持的业务规则；上下文不足时写入 assumptions。
+"""
+
+
+def build_test_plan_messages(
+    request: TestPlanGenerationRequest,
+) -> list[dict[str, str]]:
+    schema = {
+        "title": "string",
+        "scope": {
+            "in_scope": ["string"],
+            "out_of_scope": ["string"],
+            "assumptions": ["string"],
+            "risks": ["string"],
+        },
+        "steps": [
+            {
+                "id": "TP-001",
+                "title": "string",
+                "objective": "string",
+                "requirement_ids": ["REQ-001"],
+                "test_types": ["functional"],
+                "priority": "medium",
+                "tool": "http",
+                "tool_args": {"target": "api"},
+                "success_criteria": ["string"],
+            }
+        ],
+    }
+    user_prompt = f"""请基于以下输入生成测试计划。
+
+需求描述：
+{request.description}
+
+结构化需求点：
+{_format_plan_requirements(request)}
+
+企业知识库检索结果：
+{_format_contexts(request.context)}
+
+最大步骤数：{request.max_steps}
+
+计划要求：
+- 每个 high 或 critical 需求至少生成 1 个步骤。
+- 同一需求如果涉及权限、异常、资金、幂等、安全或边界，需要在 test_types 中体现。
+- 能用 API 自动验证的步骤优先选择 http；UI 流程选择 playwright；数据库核验选择 sql；无法自动化的步骤选择 manual。
+- tool_args 只描述结构化目标，例如 requirement_id, target, endpoint_hint，不要生成 shell 命令。
+- 风险、假设和不测范围必须写入 scope。
+
+目标 JSON Schema 示例：
+{json.dumps(schema, ensure_ascii=False)}
+"""
+    return [
+        {"role": "system", "content": TEST_PLAN_SYSTEM_PROMPT},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
 def _format_contexts(contexts: list[KnowledgeChunk]) -> str:
     if not contexts:
         return "无相关知识库上下文。"
@@ -130,6 +202,26 @@ def _format_contexts(contexts: list[KnowledgeChunk]) -> str:
     for index, chunk in enumerate(contexts, start=1):
         blocks.append(f"[{index}] source={chunk.source}\n{chunk.content}")
     return "\n\n".join(blocks)
+
+
+def _format_plan_requirements(request: TestPlanGenerationRequest) -> str:
+    if not request.requirements:
+        return "无结构化需求点，请从需求描述中抽取。"
+    blocks = []
+    for requirement in request.requirements:
+        blocks.append(
+            "\n".join(
+                [
+                    f"- id: {requirement.id}",
+                    f"  title: {requirement.title}",
+                    f"  priority: {requirement.priority}",
+                    f"  source: {requirement.source or '-'}",
+                    f"  description: {requirement.description or '-'}",
+                    f"  keywords: {', '.join(requirement.keywords) or '-'}",
+                ]
+            )
+        )
+    return "\n".join(blocks)
 
 
 def _coverage_instruction(request: GenerateRequest) -> str:

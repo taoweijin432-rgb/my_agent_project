@@ -24,6 +24,11 @@ def main() -> None:
     parser.add_argument("--fail-under-source-hit-rate", type=float, default=0.0)
     parser.add_argument("--fail-under-keyword-hit-rate", type=float, default=0.0)
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON.")
+    parser.add_argument(
+        "--gap-report",
+        default="",
+        help="Write a Markdown report for cases with missing sources or keywords.",
+    )
     args = parser.parse_args()
 
     cases = load_cases(Path(args.cases))
@@ -40,6 +45,12 @@ def main() -> None:
         print(json.dumps({"summary": summary, "results": results}, ensure_ascii=False, indent=2))
     else:
         print_summary(summary, results)
+
+    if args.gap_report:
+        gap_report_path = Path(args.gap_report)
+        gap_report_path.parent.mkdir(parents=True, exist_ok=True)
+        gap_report_path.write_text(build_gap_report(summary, results), encoding="utf-8")
+        print(f"Gap report written to {gap_report_path}", file=sys.stderr)
 
     if (
         summary["source_hit_rate"] < args.fail_under_source_hit_rate
@@ -125,6 +136,7 @@ def summarize_results(results: list[dict[str, Any]]) -> dict[str, Any]:
     keyword_hits = sum(len(result["matched_keywords"]) for result in results)
     keyword_total = sum(len(result["expected_keywords"]) for result in results)
     case_passes = sum(1 for result in results if result["case_pass"])
+    source_stats = _summarize_source_stats(results)
     return {
         "cases": total,
         "source_hits": source_hits,
@@ -134,7 +146,112 @@ def summarize_results(results: list[dict[str, Any]]) -> dict[str, Any]:
         "keyword_hit_rate": round(keyword_hits / keyword_total, 4) if keyword_total else 0.0,
         "case_passes": case_passes,
         "case_pass_rate": round(case_passes / total, 4) if total else 0.0,
+        "source_stats": source_stats,
     }
+
+
+def build_gap_report(summary: dict[str, Any], results: list[dict[str, Any]]) -> str:
+    gap_results = [result for result in results if _has_gap(result)]
+    lines = [
+        "# RAG Gap Report",
+        "",
+        "## Summary",
+        "",
+        f"- cases: {summary['cases']}",
+        f"- source_hit_rate: {summary['source_hit_rate']}",
+        f"- keyword_hit_rate: {summary['keyword_hit_rate']}",
+        f"- case_pass_rate: {summary['case_pass_rate']}",
+        f"- gap_cases: {len(gap_results)}",
+        "",
+    ]
+
+    if not gap_results:
+        lines.extend(["## Gaps", "", "No retrieval gaps found.", ""])
+        return "\n".join(lines)
+
+    lines.extend(["## Gaps", ""])
+    for result in gap_results:
+        missing_sources = _missing_sources(result)
+        missing_keywords = _missing_keywords(result)
+        lines.extend(
+            [
+                f"### {result['id']}",
+                "",
+                f"- query: {result['query']}",
+                f"- source_pass: {result['source_pass']}",
+                f"- keyword_pass: {result['keyword_pass']}",
+                f"- missing_sources: {', '.join(missing_sources) or '-'}",
+                f"- missing_keywords: {', '.join(missing_keywords) or '-'}",
+                "- top_results:",
+            ]
+        )
+        lines.extend(
+            [
+                "  - "
+                f"{item['source']} "
+                f"(score={item['score']}, type={item['document_type']}, module={item['module']}, chunk={item['chunk']})"
+                for item in result["top_results"]
+            ]
+            or ["  - -"]
+        )
+        lines.extend(
+            [
+                "",
+                "Suggested knowledge patch:",
+                "",
+                "```markdown",
+                f"### {result['id']} 补充知识",
+                f"- 用户查询：{result['query']}",
+                f"- 需要补充或强化的来源：{', '.join(missing_sources) or '无'}",
+                f"- 需要覆盖的关键词：{', '.join(missing_keywords) or '无'}",
+                "- 建议：把上述关键词补充到对应 PRD、API、规则或审计文档中，并重新运行 RAG 评估。",
+                "```",
+                "",
+            ]
+        )
+    return "\n".join(lines)
+
+
+def _has_gap(result: dict[str, Any]) -> bool:
+    return bool(_missing_sources(result) or _missing_keywords(result))
+
+
+def _missing_sources(result: dict[str, Any]) -> list[str]:
+    return sorted(set(result["expected_sources"]) - set(result["matched_sources"]))
+
+
+def _missing_keywords(result: dict[str, Any]) -> list[str]:
+    return [
+        keyword
+        for keyword in result["expected_keywords"]
+        if keyword not in result["matched_keywords"]
+    ]
+
+
+def _summarize_source_stats(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    stats_by_source: dict[str, dict[str, Any]] = {}
+    for result in results:
+        expected_sources = set(result["expected_sources"])
+        matched_sources = set(result["matched_sources"])
+        for source in expected_sources:
+            stats = stats_by_source.setdefault(
+                source,
+                {
+                    "source": source,
+                    "expected_cases": 0,
+                    "source_hits": 0,
+                    "hit_rate": 0.0,
+                },
+            )
+            stats["expected_cases"] += 1
+            if source in matched_sources:
+                stats["source_hits"] += 1
+
+    source_stats = list(stats_by_source.values())
+    for stats in source_stats:
+        stats["hit_rate"] = round(stats["source_hits"] / stats["expected_cases"], 4)
+    source_stats.sort(key=lambda item: (item["hit_rate"], item["source"]))
+    return source_stats
 
 
 def print_summary(summary: dict[str, Any], results: list[dict[str, Any]]) -> None:
@@ -146,6 +263,14 @@ def print_summary(summary: dict[str, Any], results: list[dict[str, Any]]) -> Non
         f"{summary['keyword_hits']}/{summary['keyword_total']} = {summary['keyword_hit_rate']}"
     )
     print(f"Case pass rate: {summary['case_passes']}/{summary['cases']} = {summary['case_pass_rate']}")
+    if summary.get("source_stats"):
+        print("Source hit stats:")
+        for stats in summary["source_stats"]:
+            print(
+                "  "
+                f"{stats['source']}: "
+                f"{stats['source_hits']}/{stats['expected_cases']} = {stats['hit_rate']}"
+            )
     print("")
     for result in results:
         status = "PASS" if result["case_pass"] else "FAIL"

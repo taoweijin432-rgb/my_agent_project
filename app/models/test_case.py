@@ -262,6 +262,63 @@ class GenerationQualityReport(BaseModel):
     recommendations: list[str] = Field(default_factory=list)
 
 
+class RequirementPoint(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(..., min_length=1, max_length=80)
+    title: str = Field(..., min_length=1, max_length=200)
+    description: str = Field(default="", max_length=2000)
+    keywords: list[str] = Field(default_factory=list)
+    priority: Literal["low", "medium", "high", "critical"] = "medium"
+    source: str | None = Field(default=None, max_length=200)
+
+    @field_validator("id", "title", "description", "source", mode="before")
+    @classmethod
+    def normalize_text(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("value must be a string")
+        value = value.strip()
+        return value or None
+
+    @field_validator("keywords", mode="before")
+    @classmethod
+    def normalize_keywords(cls, value: Any) -> list[str]:
+        return _to_list(value)
+
+
+class RequirementCoverageItem(BaseModel):
+    requirement: RequirementPoint
+    covered: bool
+    coverage_score: float = Field(..., ge=0, le=1)
+    matched_case_ids: list[str] = Field(default_factory=list)
+    matched_case_titles: list[str] = Field(default_factory=list)
+    matched_keywords: list[str] = Field(default_factory=list)
+    missing_keywords: list[str] = Field(default_factory=list)
+
+
+class CoverageEvaluationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    requirements: list[RequirementPoint] = Field(..., min_length=1)
+    cases: list[TestCase] = Field(..., min_length=1)
+    min_keyword_match_ratio: float = Field(default=1.0, gt=0, le=1)
+
+
+class CoverageEvaluationResponse(BaseModel):
+    total_requirements: int
+    covered_requirements: int
+    coverage_rate: float = Field(..., ge=0, le=1)
+    total_keywords: int
+    matched_keywords: int
+    keyword_coverage_rate: float = Field(..., ge=0, le=1)
+    uncovered_requirement_ids: list[str] = Field(default_factory=list)
+    items: list[RequirementCoverageItem]
+    warnings: list[str] = Field(default_factory=list)
+    recommendations: list[str] = Field(default_factory=list)
+
+
 class GenerationRecordDetail(GenerationRecordSummary):
     request: GenerateRequest
     response: GenerateResponse | None = None
@@ -305,6 +362,52 @@ class ExportRequest(BaseModel):
         return filename
 
 
+class PytestExportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cases: list[TestCase] = Field(..., min_length=1)
+    filename: str | None = Field(default=None)
+    target_base_url_env: str = Field(default="TARGET_BASE_URL", min_length=1, max_length=80)
+    skip_by_default: bool = True
+    adapter: Literal["template", "login_api"] = "template"
+
+    @field_validator("filename", mode="before")
+    @classmethod
+    def normalize_filename(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("filename must be a string")
+
+        filename = value.strip()
+        if not filename:
+            return None
+
+        invalid_chars = set('/\\:*?"<>|;\r\n')
+        if any(char in invalid_chars for char in filename):
+            raise ValueError("filename contains invalid characters")
+        if filename in {".", ".."}:
+            raise ValueError("filename is not allowed")
+
+        if not filename.lower().endswith(".py"):
+            filename = f"{filename}.py"
+        if len(filename) > 128:
+            raise ValueError("filename must be 128 characters or fewer")
+        return filename
+
+    @field_validator("target_base_url_env", mode="before")
+    @classmethod
+    def normalize_env_name(cls, value: Any) -> str:
+        if not isinstance(value, str):
+            raise ValueError("target_base_url_env must be a string")
+        value = value.strip()
+        if not value:
+            raise ValueError("target_base_url_env must not be empty")
+        if not all(char.isupper() or char.isdigit() or char == "_" for char in value):
+            raise ValueError("target_base_url_env must be an uppercase env var name")
+        return value
+
+
 class KnowledgeDocument(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -345,6 +448,48 @@ class KnowledgeDocumentUpsertResponse(BaseModel):
     version: int
     added_chunks: int
     replaced_chunks: int
+
+
+class CoverageGapKnowledgeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    coverage: CoverageEvaluationResponse
+    source: str = Field(
+        default="knowledge/evaluation/coverage-gaps.md",
+        min_length=1,
+        max_length=240,
+    )
+    document_type: str = Field(default="evaluation", min_length=1, max_length=80)
+    module: str = Field(default="coverage", min_length=1, max_length=80)
+    tags: list[str] = Field(default_factory=lambda: ["coverage-gap"])
+    include_covered: bool = False
+    chunk_size: int = Field(default=900, ge=200, le=3000)
+
+    @field_validator("source", "document_type", "module", mode="before")
+    @classmethod
+    def normalize_text_field(cls, value: Any) -> str:
+        if not isinstance(value, str):
+            raise ValueError("value must be a string")
+        value = value.strip()
+        if not value:
+            raise ValueError("value must not be empty")
+        return value
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def normalize_gap_tags(cls, value: Any) -> list[str]:
+        return _to_list(value)
+
+
+class CoverageGapKnowledgeUpsertResponse(BaseModel):
+    source: str
+    version: int
+    added_chunks: int
+    replaced_chunks: int
+    gap_count: int
+    document_type: str
+    module: str
+    tags: list[str] = Field(default_factory=list)
 
 
 class KnowledgeDocumentDeleteResponse(BaseModel):

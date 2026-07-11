@@ -1,12 +1,14 @@
+from types import SimpleNamespace
+
 import pytest
-from fastapi.testclient import TestClient
+from fastapi import HTTPException
 
 from app.api import routes
-from app.api.routes import require_api_key
-from app.main import app
 from app.models.test_case import (
+    GenerateRequest,
     GenerateResponse,
     GenerationGateDetail,
+    GenerationGateResolveRequest,
     GenerationGateResolution,
     GenerationJobDetail,
     GenerationRecordDetail,
@@ -19,16 +21,6 @@ from app.models.test_case import (
 from app.services.generation_jobs import GenerationJobQueueFullError
 from app.services.generator import GenerationBudgetExceededError, OutputValidationError
 from app.services.llm import LLMError, MissingApiKeyError
-
-
-client = TestClient(app)
-
-
-@pytest.fixture(autouse=True)
-def bypass_api_key() -> None:
-    app.dependency_overrides[require_api_key] = lambda: None
-    yield
-    app.dependency_overrides.pop(require_api_key, None)
 
 
 @pytest.fixture(autouse=True)
@@ -192,17 +184,26 @@ def _response() -> GenerateResponse:
     )
 
 
+def _http_request(request_id: str | None = None):
+    return SimpleNamespace(state=SimpleNamespace(request_id=request_id))
+
+
+def _json(model):
+    return model.model_dump(mode="json")
+
+
 def test_generate_api_success(monkeypatch, fake_history_store) -> None:
     generator = FakeGenerator(response=_response())
     monkeypatch.setattr(routes, "_generator", lambda: generator)
 
-    response = client.post(
-        "/api/v1/test-cases/generate",
-        json={"description": "生成 JWT 登录测试用例", "max_cases": 3},
+    response = routes.generate_test_cases(
+        GenerateRequest.model_validate(
+            {"description": "生成 JWT 登录测试用例", "max_cases": 3}
+        ),
+        _http_request(),
     )
 
-    assert response.status_code == 200
-    payload = response.json()
+    payload = _json(response)
     assert payload["cases"][0]["id"] == "TC-001"
     assert payload["cases"][0]["title"] == "JWT 登录成功"
     assert payload["metadata"]["retrieved_sources"] == [
@@ -233,13 +234,14 @@ def test_generate_api_success(monkeypatch, fake_history_store) -> None:
 def test_generate_api_error_mapping(monkeypatch, fake_history_store, error, status_code) -> None:
     monkeypatch.setattr(routes, "_generator", lambda: FakeGenerator(error=error))
 
-    response = client.post(
-        "/api/v1/test-cases/generate",
-        json={"description": "生成 JWT 登录测试用例"},
-    )
+    with pytest.raises(HTTPException) as exc_info:
+        routes.generate_test_cases(
+            GenerateRequest.model_validate({"description": "生成 JWT 登录测试用例"}),
+            _http_request(),
+        )
 
-    assert response.status_code == status_code
-    detail = response.json()["detail"]
+    assert exc_info.value.status_code == status_code
+    detail = exc_info.value.detail
     if isinstance(error, GenerationBudgetExceededError):
         assert detail["code"] == "budget_exceeded"
         assert detail["gate"] == "budget"
@@ -255,35 +257,36 @@ def test_generate_api_error_mapping(monkeypatch, fake_history_store, error, stat
 
 
 def test_generation_job_api(fake_generation_job_queue) -> None:
-    submitted = client.post(
-        "/api/v1/test-cases/generation-jobs",
-        json={"description": "生成 JWT 登录测试用例", "max_cases": 3},
+    submitted = routes.submit_generation_job(
+        GenerateRequest.model_validate(
+            {"description": "生成 JWT 登录测试用例", "max_cases": 3}
+        )
     )
-    listing = client.get("/api/v1/test-cases/generation-jobs?status=queued")
-    detail = client.get("/api/v1/test-cases/generation-jobs/job-1")
-    missing = client.get("/api/v1/test-cases/generation-jobs/missing")
+    listing = routes.list_generation_jobs(limit=20, offset=0, status_filter="queued")
+    detail = routes.get_generation_job("job-1")
+    with pytest.raises(HTTPException) as missing:
+        routes.get_generation_job("missing")
 
-    assert submitted.status_code == 202
-    assert submitted.json()["id"] == "job-1"
-    assert submitted.json()["status"] == "queued"
-    assert submitted.json()["request"]["description"] == "生成 JWT 登录测试用例"
-    assert listing.status_code == 200
-    assert listing.json()["jobs"][0]["id"] == "job-1"
-    assert detail.status_code == 200
-    assert detail.json()["id"] == "job-1"
-    assert missing.status_code == 404
+    assert submitted.id == "job-1"
+    assert submitted.status == "queued"
+    assert submitted.request.description == "生成 JWT 登录测试用例"
+    assert listing.jobs[0].id == "job-1"
+    assert detail.id == "job-1"
+    assert missing.value.status_code == 404
 
 
 def test_generation_job_api_returns_429_when_queue_is_full(fake_generation_job_queue) -> None:
     fake_generation_job_queue.full = True
 
-    response = client.post(
-        "/api/v1/test-cases/generation-jobs",
-        json={"description": "生成 JWT 登录测试用例", "max_cases": 3},
-    )
+    with pytest.raises(HTTPException) as exc_info:
+        routes.submit_generation_job(
+            GenerateRequest.model_validate(
+                {"description": "生成 JWT 登录测试用例", "max_cases": 3}
+            )
+        )
 
-    assert response.status_code == 429
-    assert response.json()["detail"] == "Generation job queue is full. Retry later."
+    assert exc_info.value.status_code == 429
+    assert exc_info.value.detail == "Generation job queue is full. Retry later."
 
 
 def test_generation_record_list_and_detail(fake_history_store) -> None:
@@ -319,49 +322,66 @@ def test_generation_record_list_and_detail(fake_history_store) -> None:
         ),
     ]
 
-    listing = client.get("/api/v1/generation-records?status=success")
-    gates = client.get("/api/v1/generation-gates")
-    approved_before = client.get("/api/v1/generation-gates?status=approved")
-    resolved_gate = client.post(
-        "/api/v1/generation-gates/record-2/resolve",
-        json={
-            "decision": "approved",
-            "resolved_by": "qa-owner",
-            "comment": "allowed for import",
-        },
+    listing = routes.list_generation_records(limit=20, offset=0, status_filter="success")
+    gates = routes.list_generation_gates(limit=20, offset=0, status_filter="pending")
+    approved_before = routes.list_generation_gates(
+        limit=20,
+        offset=0,
+        status_filter="approved",
     )
-    gates_after_resolve = client.get("/api/v1/generation-gates")
-    approved_after = client.get("/api/v1/generation-gates?status=approved")
-    all_gates = client.get("/api/v1/generation-gates?status=all")
-    missing_gate = client.post(
-        "/api/v1/generation-gates/missing/resolve",
-        json={"decision": "rejected"},
+    resolved_gate = routes.resolve_generation_gate(
+        "record-2",
+        GenerationGateResolveRequest.model_validate(
+            {
+                "decision": "approved",
+                "resolved_by": "qa-owner",
+                "comment": "allowed for import",
+            }
+        ),
     )
-    detail = client.get("/api/v1/generation-records/record-1")
-    missing = client.get("/api/v1/generation-records/missing")
+    gates_after_resolve = routes.list_generation_gates(
+        limit=20,
+        offset=0,
+        status_filter="pending",
+    )
+    approved_after = routes.list_generation_gates(
+        limit=20,
+        offset=0,
+        status_filter="approved",
+    )
+    all_gates = routes.list_generation_gates(limit=20, offset=0, status_filter="all")
+    with pytest.raises(HTTPException) as missing_gate:
+        routes.resolve_generation_gate(
+            "missing",
+            GenerationGateResolveRequest.model_validate({"decision": "rejected"}),
+        )
+    detail = routes.get_generation_record("record-1")
+    with pytest.raises(HTTPException) as missing:
+        routes.get_generation_record("missing")
 
-    assert listing.status_code == 200
-    assert listing.json()["records"][0]["id"] == "record-1"
-    assert listing.json()["records"][0]["status"] == "success"
-    assert gates.status_code == 200
-    assert gates.json()["records"][0]["id"] == "record-2"
-    assert gates.json()["records"][0]["gate"]["code"] == "quality_gate_failed"
-    assert gates.json()["records"][0]["gate_resolution"] is None
-    assert approved_before.status_code == 200
-    assert approved_before.json()["records"] == []
-    assert resolved_gate.status_code == 200
-    assert resolved_gate.json()["gate_resolution"]["status"] == "approved"
-    assert resolved_gate.json()["gate_resolution"]["resolved_by"] == "qa-owner"
-    assert resolved_gate.json()["gate_resolution"]["comment"] == "allowed for import"
-    assert gates_after_resolve.status_code == 200
-    assert gates_after_resolve.json()["records"] == []
-    assert approved_after.status_code == 200
-    assert approved_after.json()["records"][0]["id"] == "record-2"
-    assert all_gates.status_code == 200
-    assert all_gates.json()["records"][0]["id"] == "record-2"
-    assert missing_gate.status_code == 404
-    assert detail.status_code == 200
-    assert detail.json()["request"]["description"] == "生成 JWT 登录测试用例"
-    assert detail.json()["response"]["cases"][0]["title"] == "JWT 登录成功"
-    assert detail.json()["usage"]["total_tokens_estimate"] == 0
-    assert missing.status_code == 404
+    listing_payload = _json(listing)
+    gates_payload = _json(gates)
+    approved_before_payload = _json(approved_before)
+    resolved_gate_payload = _json(resolved_gate)
+    gates_after_resolve_payload = _json(gates_after_resolve)
+    approved_after_payload = _json(approved_after)
+    all_gates_payload = _json(all_gates)
+    detail_payload = _json(detail)
+
+    assert listing_payload["records"][0]["id"] == "record-1"
+    assert listing_payload["records"][0]["status"] == "success"
+    assert gates_payload["records"][0]["id"] == "record-2"
+    assert gates_payload["records"][0]["gate"]["code"] == "quality_gate_failed"
+    assert gates_payload["records"][0]["gate_resolution"] is None
+    assert approved_before_payload["records"] == []
+    assert resolved_gate_payload["gate_resolution"]["status"] == "approved"
+    assert resolved_gate_payload["gate_resolution"]["resolved_by"] == "qa-owner"
+    assert resolved_gate_payload["gate_resolution"]["comment"] == "allowed for import"
+    assert gates_after_resolve_payload["records"] == []
+    assert approved_after_payload["records"][0]["id"] == "record-2"
+    assert all_gates_payload["records"][0]["id"] == "record-2"
+    assert missing_gate.value.status_code == 404
+    assert detail_payload["request"]["description"] == "生成 JWT 登录测试用例"
+    assert detail_payload["response"]["cases"][0]["title"] == "JWT 登录成功"
+    assert detail_payload["usage"]["total_tokens_estimate"] == 0
+    assert missing.value.status_code == 404

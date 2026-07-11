@@ -1,4 +1,5 @@
 import hashlib
+import json
 import logging
 import threading
 import time
@@ -65,14 +66,14 @@ def add_request_middleware(app: FastAPI, settings: Settings) -> None:
                 response = await call_next(request)
             status_code = response.status_code
         except Exception:
-            _log_request(request, request_id, status_code, start, failed=True)
+            _log_request(request, request_id, status_code, start, settings=settings, failed=True)
             raise
 
         duration_ms = (time.perf_counter() - start) * 1000
         response.headers["X-Request-ID"] = request_id
         response.headers["X-Process-Time-ms"] = f"{duration_ms:.2f}"
         if settings.request_log_enabled:
-            _log_request(request, request_id, status_code, start)
+            _log_request(request, request_id, status_code, start, settings=settings)
         return response
 
 
@@ -106,11 +107,31 @@ def _log_request(
     status_code: int,
     start: float,
     *,
+    settings: Settings,
     failed: bool = False,
 ) -> None:
     duration_ms = (time.perf_counter() - start) * 1000
     level = logging.ERROR if failed or status_code >= 500 else logging.INFO
     client_host = request.client.host if request.client else "unknown"
+    if settings.request_log_format == "json":
+        logger.log(
+            level,
+            json.dumps(
+                {
+                    "event": "request",
+                    "method": request.method,
+                    "path": request.url.path,
+                    "status_code": status_code,
+                    "duration_ms": round(duration_ms, 2),
+                    "request_id": request_id,
+                    "client": client_host,
+                },
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+        )
+        return
+
     logger.log(
         level,
         (

@@ -1,12 +1,22 @@
+# Unified backend dependencies used by local development, CI, Docker, and smoke checks.
+-c constraints.txt
+
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 pydantic>=2.7.0
 httpx>=0.27.0
 httpx2>=2.4.0
-chromadb>=0.5.0
 openpyxl>=3.1.0
-pytest>=8.2.0
 redis>=5.0.0
 rq>=1.16.0
 langgraph>=0.2.0
 langchain-core>=0.3.0
+chromadb>=0.5.0
+PyMySQL>=1.1.1
+pytest>=8.2.0
+ruff>=0.8.0,<0.15
+mypy>=1.13.0,<2.0
+
+# Optional semantic embedding dependencies are intentionally not installed by
+# default because PyTorch CPU wheels are large. See docs/deployment.md for the
+# manual install command when EMBEDDING_PROVIDER=sentence_transformers is used.

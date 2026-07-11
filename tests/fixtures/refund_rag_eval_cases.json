@@ -1,0 +1,43 @@
+[
+  {
+    "id": "refund-order-status",
+    "query": "订单退款 paid shipped refunding refunded closed 状态 是否允许退款",
+    "expected_sources": [
+      "knowledge/prd/refund/refund-prd.md"
+    ],
+    "expected_keywords": ["paid", "shipped", "refunding", "refunded", "closed", "不允许重复提交退款申请"]
+  },
+  {
+    "id": "refund-amount-boundary",
+    "query": "订单退款 部分退款 金额 0 负数 等于实付金额 超过实付金额 运费 优惠券 积分",
+    "expected_sources": [
+      "knowledge/prd/refund/refund-prd.md"
+    ],
+    "expected_keywords": ["部分退款金额", "大于 0", "小于订单实付金额", "shipping_fee_refundable", "优惠券", "积分"]
+  },
+  {
+    "id": "refund-api-idempotency",
+    "query": "创建退款 API idempotency_key refund_already_processing idempotency_key_conflict return_tracking_required",
+    "expected_sources": [
+      "knowledge/api/refund/refund-api-contract.md"
+    ],
+    "expected_keywords": ["POST /api/v1/refunds", "idempotency_key", "refund_already_processing", "idempotency_key_conflict", "return_tracking_required"]
+  },
+  {
+    "id": "refund-risk-review",
+    "query": "退款风控 5000 元 24 小时 3 笔 黑名单 large_amount_refund frequent_refund_user manual",
+    "expected_sources": [
+      "knowledge/risk/refund/refund-risk-rules.md",
+      "knowledge/prd/refund/refund-prd.md"
+    ],
+    "expected_keywords": ["large_amount_refund", "frequent_refund_user", "blacklisted_user", "review_mode", "manual", "二级审核人"]
+  },
+  {
+    "id": "refund-audit-log",
+    "query": "退款审计日志 refund_created refund_reviewed refund_payment_callback risk_flags payment_refund_no request_id 脱敏",
+    "expected_sources": [
+      "knowledge/audit/refund/refund-audit-log.md"
+    ],
+    "expected_keywords": ["refund_created", "refund_reviewed", "refund_payment_callback", "risk_flags", "payment_refund_no", "request_id", "脱敏"]
+  }
+]

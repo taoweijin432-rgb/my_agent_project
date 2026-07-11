@@ -344,7 +344,9 @@ Prompt 中只保留对生成有用的信息：
 - `GenerationJobStore.get_job`
 - `GenerationJobStore.list_jobs`
 - `build_excel`
+- `build_pytest_template`
 - `score_generation_quality`
+- `evaluate_requirement_coverage`
 
 后续如果做 Tool Calling，可以把这些能力封装成工具：
 
@@ -358,6 +360,7 @@ submit_generation_job(request)
 get_generation_job(job_id)
 score_cases(cases)
 export_cases(cases)
+evaluate_coverage(requirements, cases)
 ```
 
 注意：不是所有功能都应该开放给 LLM。删除知识库、导出文件、写入历史这类操作需要权限和确认。
@@ -375,6 +378,8 @@ Agent 不能只看“能不能生成”，要评估多个层面。
 - Reviewer 节点和条件重试测试。
 - 预算门控和质量门控测试。
 - usage 统计。
+- 需求覆盖率评估。
+- pytest 模板导出测试。
 
 后续建议增加：
 
@@ -382,6 +387,7 @@ Agent 不能只看“能不能生成”，要评估多个层面。
 - 每次 prompt/version 改动后跑生成质量对比。
 - 记录 pass rate、平均分、重复率、类型覆盖率。
 - RAG source hit rate 和 keyword hit rate。
+- 记录需求覆盖率、关键词覆盖率、缺失验收点和人工确认结果。
 
 ## 9. Agent 生产化常见问题
 
@@ -464,7 +470,7 @@ Agent 不能只看“能不能生成”，要评估多个层面。
 
 设计边界是：API 层只负责接单，worker 后台复用原有生成链路，因此不会绕过 RAG、Reviewer、门控、usage 和历史记录。当前支持 `GENERATION_JOB_QUEUE_BACKEND=in_memory|rq`。`in_memory` 适合本地开发；`rq` 使用 Redis/RQ 派发任务，并把任务状态写入当前 `DATABASE_BACKEND` 对应的数据库。`GENERATION_JOB_MAX_QUEUE_SIZE` 控制提交背压，队列满时返回 429，避免无限堆积。
 
-这能提升的是“接单 QPS”和长任务承载能力，不代表真实生成吞吐无限提升。真实吞吐仍受模型供应商 QPS/TPM 限流、本机 CPU/内存、Chroma 检索耗时和 worker 数影响。Redis/RQ 解决了 worker 与 API 进程拆分问题；默认 SQLite 状态库仍更适合单机部署，MySQL backend 已实现并通过备份恢复、Compose 模板、完整 Compose smoke 和 5 任务稳定性 smoke，但多实例生产还需要补故障恢复验证、队列可观测性和更长时长运行验证。
+这能提升的是“接单 QPS”和长任务承载能力，不代表真实生成吞吐无限提升。真实吞吐仍受模型供应商 QPS/TPM 限流、本机 CPU/内存、Chroma 检索耗时和 worker 数影响。Redis/RQ 解决了 worker 与 API 进程拆分问题；默认 SQLite 状态库仍更适合单机部署，MySQL backend 已实现并通过备份恢复、Compose 模板、完整 Compose smoke、stale 恢复 smoke 和 5 任务稳定性 smoke，但多实例生产还需要补队列可观测性、Redis/MySQL 短暂不可用演练和更长时长运行验证。
 
 ## 10. 工程特性概述
 

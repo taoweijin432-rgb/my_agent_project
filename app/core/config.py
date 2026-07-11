@@ -97,6 +97,7 @@ class Settings:
     app_name: str = "AI Test Case Generator"
     app_env: str = "development"
     app_api_key: str | None = None
+    app_api_keys: list[str] = field(default_factory=list)
     zhipu_api_key: str | None = None
     zhipu_base_url: str = "https://open.bigmodel.cn/api/paas/v4"
     zhipu_chat_model: str = "glm-4-flash"
@@ -131,10 +132,18 @@ class Settings:
     rq_result_ttl_seconds: int = 3600
     rq_failure_ttl_seconds: int = 86400
     generation_job_stale_after_seconds: int = 1800
+    test_tool_http_base_url_allowlist: list[str] = field(default_factory=list)
+    test_tool_artifact_dir: str = "data/test-artifacts"
+    test_tool_artifact_max_bytes: int = 200000
+    test_tool_artifact_retention_seconds: int = 604800
+    test_tool_pytest_enabled: bool = False
+    test_tool_pytest_allowed_paths: list[str] = field(default_factory=lambda: ["tests"])
+    test_tool_pytest_timeout_seconds: int = 60
     rate_limit_enabled: bool = True
     rate_limit_requests: int = 60
     rate_limit_window_seconds: int = 60
     request_log_enabled: bool = True
+    request_log_format: str = "text"
     database_backend: str = "sqlite"
     database_url: str | None = None
     generation_history_enabled: bool = True
@@ -147,6 +156,20 @@ class Settings:
     @property
     def is_production(self) -> bool:
         return self.app_env.strip().lower() in PRODUCTION_ENV_NAMES
+
+    @property
+    def accepted_api_keys(self) -> list[str]:
+        keys: list[str] = []
+        seen: set[str] = set()
+        for raw_key in [self.app_api_key, *self.app_api_keys]:
+            if raw_key is None:
+                continue
+            key = raw_key.strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            keys.append(key)
+        return keys
 
 
 @lru_cache
@@ -181,6 +204,14 @@ def get_settings() -> Settings:
             legacy,
             "APP_API_KEY",
             aliases=("SERVICE_API_KEY",),
+        ),
+        app_api_keys=_get_csv(
+            _get_config_value(
+                legacy,
+                "APP_API_KEYS",
+                aliases=("SERVICE_API_KEYS",),
+            ),
+            "",
         ),
         zhipu_api_key=_get_config_value(
             legacy,
@@ -356,6 +387,39 @@ def get_settings() -> Settings:
             1800,
             minimum=0,
         ),
+        test_tool_http_base_url_allowlist=_get_csv(
+            _get_config_value(legacy, "TEST_TOOL_HTTP_BASE_URL_ALLOWLIST"),
+            "",
+        ),
+        test_tool_artifact_dir=_get_config_value(
+            legacy,
+            "TEST_TOOL_ARTIFACT_DIR",
+            default="data/test-artifacts",
+        )
+        or "data/test-artifacts",
+        test_tool_artifact_max_bytes=_get_int(
+            _get_config_value(legacy, "TEST_TOOL_ARTIFACT_MAX_BYTES"),
+            200000,
+            minimum=1024,
+        ),
+        test_tool_artifact_retention_seconds=_get_int(
+            _get_config_value(legacy, "TEST_TOOL_ARTIFACT_RETENTION_SECONDS"),
+            604800,
+            minimum=0,
+        ),
+        test_tool_pytest_enabled=_get_bool(
+            _get_config_value(legacy, "TEST_TOOL_PYTEST_ENABLED"),
+            False,
+        ),
+        test_tool_pytest_allowed_paths=_get_csv(
+            _get_config_value(legacy, "TEST_TOOL_PYTEST_ALLOWED_PATHS"),
+            "tests",
+        ),
+        test_tool_pytest_timeout_seconds=_get_int(
+            _get_config_value(legacy, "TEST_TOOL_PYTEST_TIMEOUT_SECONDS"),
+            60,
+            minimum=1,
+        ),
         rate_limit_enabled=_get_bool(
             _get_config_value(legacy, "RATE_LIMIT_ENABLED"),
             True,
@@ -374,6 +438,9 @@ def get_settings() -> Settings:
             _get_config_value(legacy, "REQUEST_LOG_ENABLED"),
             True,
         ),
+        request_log_format=(
+            _get_config_value(legacy, "REQUEST_LOG_FORMAT", default="text") or "text"
+        ).strip().lower(),
         database_backend=(
             _get_config_value(legacy, "DATABASE_BACKEND", default="sqlite") or "sqlite"
         ).strip().lower(),
@@ -406,9 +473,15 @@ def validate_production_settings(settings: Settings) -> list[str]:
         return []
 
     errors: list[str] = []
-    if _is_weak_secret(settings.app_api_key):
+    api_keys = settings.accepted_api_keys
+    weak_api_keys = [key for key in api_keys if _is_weak_secret(key)]
+    if not api_keys:
         errors.append(
-            "APP_API_KEY must be configured with a non-placeholder value of at least 16 characters."
+            "APP_API_KEY or APP_API_KEYS must be configured with at least one non-placeholder value of at least 16 characters."
+        )
+    elif weak_api_keys:
+        errors.append(
+            "APP_API_KEY and APP_API_KEYS entries must use non-placeholder values of at least 16 characters."
         )
     if _is_weak_secret(settings.zhipu_api_key):
         errors.append(
@@ -445,6 +518,8 @@ def validate_production_settings(settings: Settings) -> list[str]:
         errors.append("RATE_LIMIT_ENABLED must be true in production.")
     if not settings.request_log_enabled:
         errors.append("REQUEST_LOG_ENABLED must be true in production.")
+    if settings.request_log_format not in {"text", "json"}:
+        errors.append("REQUEST_LOG_FORMAT must be 'text' or 'json'.")
     if not settings.agent_review_enabled:
         errors.append("AGENT_REVIEW_ENABLED must be true in production.")
     if not 0 <= settings.agent_review_min_score <= 100:

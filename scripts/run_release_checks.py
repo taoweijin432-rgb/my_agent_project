@@ -17,21 +17,69 @@ DEFAULT_LOGIN_RAG_ENV = {
     "CHROMA_PATH": "data/chroma-login-rag-eval",
     "CHROMA_COLLECTION": "login_rag_eval_hash",
 }
+DEFAULT_REFUND_RAG_ENV = {
+    "EMBEDDING_PROVIDER": "hash",
+    "CHROMA_PATH": "data/chroma-refund-rag-eval",
+    "CHROMA_COLLECTION": "refund_rag_eval_hash",
+}
+DEFAULT_READINESS_ENV = {
+    "DATABASE_BACKEND": "sqlite",
+    "GENERATION_JOB_QUEUE_BACKEND": "in_memory",
+    "GENERATION_HISTORY_DB_PATH": "/tmp/ai-testcase-generator-readiness/app.sqlite3",
+    "CHROMA_PATH": "/tmp/ai-testcase-generator-readiness/chroma",
+    "EMBEDDING_CACHE_DIR": "/tmp/ai-testcase-generator-readiness/model-cache",
+}
+DEFAULT_QUEUE_OBSERVABILITY_ENV = {
+    "DATABASE_BACKEND": "sqlite",
+    "GENERATION_JOB_QUEUE_BACKEND": "in_memory",
+    "GENERATION_HISTORY_DB_PATH": "/tmp/ai-testcase-generator-queue-check/app.sqlite3",
+}
 DEFAULT_PYTEST_TARGETS = [
     "tests/test_agent_workflow.py",
+    "tests/test_auth.py",
+    "tests/test_auth_dependency.py",
     "tests/test_config.py",
+    "tests/test_coverage_evaluation.py",
     "tests/test_deployment_templates.py",
+    "tests/test_export.py",
+    "tests/test_generate_api.py",
     "tests/test_generation_jobs.py",
     "tests/test_generation_job_store.py",
     "tests/test_generator.py",
     "tests/test_history.py",
+    "tests/test_knowledge_api.py",
+    "tests/test_middleware.py",
+    "tests/test_middleware_logging.py",
     "tests/test_prompt.py",
+    "tests/test_pytest_export.py",
     "tests/test_quality.py",
     "tests/test_reviewer.py",
     "tests/test_runtime_paths.py",
     "tests/test_queue_observability.py",
     "tests/test_rag_evaluation.py",
+    "tests/test_readiness.py",
+    "tests/test_recovery_smoke.py",
+    "tests/test_test_execution_smoke.py",
+    "tests/test_test_plan_api.py",
+    "tests/test_test_plan_evaluation.py",
+    "tests/test_test_plan_execution_jobs.py",
+    "tests/test_test_plan_execution_store.py",
+    "tests/test_test_plan_generator.py",
+    "tests/test_test_plan_models.py",
+    "tests/test_tool_adapters.py",
+    "tests/test_tool_artifacts.py",
+    "tests/test_tool_execution.py",
     "tests/test_ingest_documents.py",
+]
+DEFAULT_TYPE_CHECK_TARGETS = [
+    "app/models/test_plan.py",
+    "app/services/tool_adapters.py",
+    "app/services/tool_execution.py",
+    "app/services/test_report.py",
+    "app/services/test_plan_execution.py",
+    "app/services/test_plan_execution_jobs.py",
+    "app/services/test_plan_execution_store.py",
+    "app/workers/test_plan_execution_rq.py",
 ]
 
 
@@ -81,6 +129,31 @@ def parse_args() -> argparse.Namespace:
         help="Skip pytest regression checks.",
     )
     parser.add_argument(
+        "--skip-test-plan-eval",
+        action="store_true",
+        help="Skip deterministic test plan evaluation.",
+    )
+    parser.add_argument(
+        "--skip-type-check",
+        action="store_true",
+        help="Skip mypy checks for test-agent contract modules.",
+    )
+    parser.add_argument(
+        "--skip-recovery-smoke",
+        action="store_true",
+        help="Skip stale generation job recovery smoke.",
+    )
+    parser.add_argument(
+        "--skip-readiness-check",
+        action="store_true",
+        help="Skip runtime readiness check.",
+    )
+    parser.add_argument(
+        "--skip-queue-check",
+        action="store_true",
+        help="Skip generation queue/database observability check.",
+    )
+    parser.add_argument(
         "--skip-diff-check",
         action="store_true",
         help="Skip `git diff --check`.",
@@ -128,6 +201,22 @@ def build_default_commands(args: argparse.Namespace) -> list[CheckCommand]:
                     env=DEFAULT_LOGIN_RAG_ENV,
                 ),
                 CheckCommand(
+                    name="refund-rag-ingest",
+                    command=[
+                        args.python,
+                        "scripts/ingest_documents.py",
+                        "knowledge/prd/refund",
+                        "knowledge/api/refund",
+                        "knowledge/risk/refund",
+                        "knowledge/audit/refund",
+                        "--recursive",
+                        "--reset",
+                        "--chunk-size",
+                        "900",
+                    ],
+                    env=DEFAULT_REFUND_RAG_ENV,
+                ),
+                CheckCommand(
                     name="login-rag-eval",
                     command=[
                         args.python,
@@ -145,6 +234,24 @@ def build_default_commands(args: argparse.Namespace) -> list[CheckCommand]:
                     ],
                     env=DEFAULT_LOGIN_RAG_ENV,
                 ),
+                CheckCommand(
+                    name="refund-rag-eval",
+                    command=[
+                        args.python,
+                        "scripts/evaluate_rag.py",
+                        "--cases",
+                        "tests/fixtures/refund_rag_eval_cases.json",
+                        "--top-k",
+                        "5",
+                        "--case-keyword-ratio",
+                        "1.0",
+                        "--fail-under-source-hit-rate",
+                        "1.0",
+                        "--fail-under-keyword-hit-rate",
+                        "1.0",
+                    ],
+                    env=DEFAULT_REFUND_RAG_ENV,
+                ),
             ]
         )
     if not args.skip_pytest:
@@ -152,6 +259,68 @@ def build_default_commands(args: argparse.Namespace) -> list[CheckCommand]:
             CheckCommand(
                 name="pytest-core",
                 command=[args.python, "-m", "pytest", *DEFAULT_PYTEST_TARGETS, "-q"],
+            )
+        )
+    if not args.skip_type_check:
+        commands.append(
+            CheckCommand(
+                name="type-check-test-agent",
+                command=[args.python, "-m", "mypy", *DEFAULT_TYPE_CHECK_TARGETS],
+            )
+        )
+    if not args.skip_test_plan_eval:
+        commands.append(
+            CheckCommand(
+                name="test-plan-eval",
+                command=[
+                    args.python,
+                    "scripts/evaluate_test_plan.py",
+                    "--json",
+                    "--fail-under-case-pass-rate",
+                    "1.0",
+                    "--fail-under-tool-hit-rate",
+                    "1.0",
+                    "--fail-under-test-type-hit-rate",
+                    "1.0",
+                    "--fail-under-risk-keyword-hit-rate",
+                    "1.0",
+                ],
+            )
+        )
+    if not args.skip_recovery_smoke:
+        commands.append(
+            CheckCommand(
+                name="generation-recovery-smoke",
+                command=[
+                    args.python,
+                    "scripts/smoke_recover_stale_generation_jobs.py",
+                    "--json",
+                ],
+            )
+        )
+    if not args.skip_readiness_check:
+        commands.append(
+            CheckCommand(
+                name="readiness-check",
+                command=[
+                    args.python,
+                    "scripts/check_readiness.py",
+                    "--json",
+                ],
+                env=DEFAULT_READINESS_ENV,
+            )
+        )
+    if not args.skip_queue_check:
+        commands.append(
+            CheckCommand(
+                name="generation-queue-check",
+                command=[
+                    args.python,
+                    "scripts/check_generation_queue.py",
+                    "--json",
+                    "--fail-on-mismatch",
+                ],
+                env=DEFAULT_QUEUE_OBSERVABILITY_ENV,
             )
         )
     if not args.skip_diff_check:

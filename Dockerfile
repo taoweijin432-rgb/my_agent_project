@@ -7,26 +7,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-ARG INSTALL_ML_DEPS=false
 ARG INSTALLER=pip
-ARG REQUIREMENTS_FILE=requirements.txt
 
-COPY requirements.txt requirements-smoke.txt requirements-langgraph.txt requirements-mysql.txt .
+COPY constraints.txt requirements.txt .
 RUN python -m pip install --upgrade pip \
     && if [ "$INSTALLER" = "uv" ]; then \
         python -m pip install uv \
-        && uv pip install --system --no-cache -r "$REQUIREMENTS_FILE"; \
+        && uv pip install --system --no-cache -r requirements.txt; \
     else \
-        python -m pip install --no-cache-dir -r "$REQUIREMENTS_FILE"; \
-    fi
-
-COPY requirements-ml.txt .
-RUN if [ "$INSTALL_ML_DEPS" = "true" ]; then \
-        if [ "$INSTALLER" = "uv" ]; then \
-            uv pip install --system --no-cache -r requirements-ml.txt; \
-        else \
-            python -m pip install --no-cache-dir -r requirements-ml.txt; \
-        fi; \
+        python -m pip install --no-cache-dir -r requirements.txt; \
     fi
 
 COPY app ./app

@@ -68,6 +68,20 @@ knowledge/evaluation/login-rag-eval-cases.md             RAG 评估查询集
 
 生成登录测试用例时，优先导入全部上述文件。若只导入总览索引，RAG 可能召回不足；若只导入 PRD，模型容易漏掉安全、审计和接口字段断言。
 
+## 订单退款模块示例知识库
+
+订单退款模块用于验证非登录场景的 RAG 泛化能力：
+
+```text
+knowledge/prd/refund/refund-prd.md                  退款 PRD、状态、金额、审核和时效规则
+knowledge/api/refund/refund-api-contract.md         退款创建、查询、审核 API 和幂等错误码
+knowledge/risk/refund/refund-risk-rules.md          大额退款、频繁退款、黑名单等风控规则
+knowledge/audit/refund/refund-audit-log.md          退款审计事件、字段和脱敏要求
+tests/fixtures/refund_rag_eval_cases.json           订单退款 RAG 固定评估集
+```
+
+订单退款固定评估使用隔离 `refund_rag_eval_hash` collection，避免与登录或通用知识库互相影响。
+
 `knowledge_export/` 使用同样的一级目录作为 `document_type`，文件名会作为 `module`。例如：
 
 ```text

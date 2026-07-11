@@ -1,5 +1,5 @@
 from app.models.test_case import KnowledgeChunk
-from scripts.evaluate_rag import evaluate_case, evaluate_cases, summarize_results
+from scripts.evaluate_rag import build_gap_report, evaluate_case, evaluate_cases, summarize_results
 
 
 def test_evaluate_case_matches_sources_and_keywords() -> None:
@@ -83,3 +83,63 @@ def test_evaluate_cases_and_summary() -> None:
     assert summary["keyword_total"] == 2
     assert summary["keyword_hit_rate"] == 0.5
     assert summary["case_passes"] == 1
+    assert summary["source_stats"] == [
+        {
+            "source": "questionnaire.md",
+            "expected_cases": 1,
+            "source_hits": 0,
+            "hit_rate": 0.0,
+        },
+        {
+            "source": "auth.md",
+            "expected_cases": 1,
+            "source_hits": 1,
+            "hit_rate": 1.0,
+        },
+    ]
+
+
+def test_build_gap_report_lists_missing_sources_and_keywords() -> None:
+    case = {
+        "id": "refund-gap",
+        "query": "退款 风控 审计",
+        "expected_sources": ["knowledge/risk/refund/refund-risk-rules.md"],
+        "expected_keywords": ["large_amount_refund", "risk_flags"],
+    }
+    chunks = [
+        KnowledgeChunk(
+            content="退款审计日志包含 request_id",
+            source="knowledge/audit/refund/refund-audit-log.md",
+            score=0.42,
+            document_type="audit",
+            module="refund",
+            chunk=0,
+            tags=["audit", "refund"],
+        )
+    ]
+    result = evaluate_case(case, chunks, case_keyword_ratio=1.0)
+    summary = summarize_results([result])
+
+    report = build_gap_report(summary, [result])
+
+    assert "# RAG Gap Report" in report
+    assert "### refund-gap" in report
+    assert "missing_sources: knowledge/risk/refund/refund-risk-rules.md" in report
+    assert "missing_keywords: large_amount_refund, risk_flags" in report
+    assert "### refund-gap 补充知识" in report
+
+
+def test_build_gap_report_handles_no_gaps() -> None:
+    case = {
+        "id": "pass",
+        "query": "JWT 登录",
+        "expected_sources": ["auth.md"],
+        "expected_keywords": ["JWT"],
+    }
+    result = evaluate_case(case, [KnowledgeChunk(content="JWT", source="auth.md")])
+    summary = summarize_results([result])
+
+    report = build_gap_report(summary, [result])
+
+    assert "gap_cases: 0" in report
+    assert "No retrieval gaps found." in report

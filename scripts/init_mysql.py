@@ -35,7 +35,7 @@ def main() -> None:
     except ModuleNotFoundError as exc:
         raise SystemExit(
             "PyMySQL is not installed. Install optional dependencies with "
-            "`uv pip install --python ./.venv/bin/python -r requirements-mysql.txt`."
+            "`uv pip install --python ./.venv/bin/python -r requirements.txt`."
         ) from exc
 
     config = _parse_mysql_url(args.database_url)

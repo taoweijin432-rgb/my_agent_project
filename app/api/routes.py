@@ -10,6 +10,10 @@ from fastapi.security import APIKeyHeader
 
 from app.core.config import Settings, get_settings
 from app.models.test_case import (
+    CoverageGapKnowledgeRequest,
+    CoverageGapKnowledgeUpsertResponse,
+    CoverageEvaluationRequest,
+    CoverageEvaluationResponse,
     ExportRequest,
     GenerateRequest,
     GenerateResponse,
@@ -22,10 +26,25 @@ from app.models.test_case import (
     KnowledgeDocumentListResponse,
     KnowledgeDocumentUpsertRequest,
     KnowledgeDocumentUpsertResponse,
+    PytestExportRequest,
     IngestRequest,
     IngestResponse,
     QueryRequest,
     QueryResponse,
+)
+from app.models.test_plan import (
+    TestExecutionReport,
+    TestPlan,
+    TestPlanExecutionRequest,
+    TestPlanExecutionJobDetail,
+    TestPlanExecutionJobListResponse,
+    TestPlanGenerationRequest,
+    TestPlanStepExecutionRequest,
+    ToolRun,
+)
+from app.services.coverage import (
+    build_coverage_gap_knowledge_document,
+    evaluate_requirement_coverage,
 )
 from app.services.excel_exporter import build_excel
 from app.services.generation_execution import (
@@ -48,6 +67,7 @@ from app.services.history import (
     GenerationGateAlreadyResolvedError,
 )
 from app.services.llm import LLMClient, LLMError, MissingApiKeyError
+from app.services.pytest_exporter import build_pytest_template
 from app.services.rag import ChromaUnavailableError, RagService
 from app.services.stores import (
     GenerationHistoryRepository,
@@ -55,6 +75,26 @@ from app.services.stores import (
     create_generation_history_store,
     create_generation_job_store,
 )
+from app.services.test_plan_execution import (
+    TestPlanExecutionConfigurationError,
+    build_tool_execution_service,
+    execute_test_plan_request as run_test_plan_execution_request,
+)
+from app.services.test_report import build_execution_report
+from app.services.test_plan_generator import (
+    LLMTestPlanGenerator,
+    TestPlanGenerator,
+    TestPlanOutputValidationError,
+)
+from app.services.test_plan_execution_jobs import (
+    InMemoryTestPlanExecutionJobQueue,
+    RedisRQTestPlanExecutionJobQueue,
+    TestPlanExecutionJobQueue,
+    TestPlanExecutionJobQueueFullError,
+    TestPlanExecutionJobQueueUnavailableError,
+)
+from app.services.test_plan_execution_store import TestPlanExecutionJobStore
+from app.services.tool_execution import ToolExecutionService
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 logger = logging.getLogger("app.history")
@@ -62,12 +102,17 @@ logger = logging.getLogger("app.history")
 
 def require_api_key(api_key: str | None = Depends(api_key_header)) -> None:
     settings = _settings()
-    if not settings.app_api_key:
+    accepted_api_keys = settings.accepted_api_keys
+    if not accepted_api_keys:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="APP_API_KEY is not configured.",
+            detail="APP_API_KEY or APP_API_KEYS is not configured.",
         )
-    if not api_key or not compare_digest(api_key, settings.app_api_key):
+    matched = False
+    if api_key:
+        for key in accepted_api_keys:
+            matched = compare_digest(api_key, key) or matched
+    if not matched:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid API key.",
@@ -76,6 +121,7 @@ def require_api_key(api_key: str | None = Depends(api_key_header)) -> None:
 
 router = APIRouter(dependencies=[Depends(require_api_key)])
 DEFAULT_EXPORT_FILENAME = "test-cases.xlsx"
+DEFAULT_PYTEST_EXPORT_FILENAME = "test_generated_cases.py"
 
 
 @lru_cache
@@ -116,6 +162,42 @@ def _generation_job_queue() -> GenerationJobQueue:
 
 def _generator() -> TestCaseGenerator:
     return TestCaseGenerator(settings=_settings(), llm=_llm_client(), rag=_rag_service)
+
+
+def _tool_execution_service(http_base_url: str) -> ToolExecutionService:
+    try:
+        return build_tool_execution_service(_settings(), http_base_url)
+    except TestPlanExecutionConfigurationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _test_plan_generator(
+    *,
+    use_llm: bool,
+    allow_llm_fallback: bool,
+) -> TestPlanGenerator | LLMTestPlanGenerator:
+    if not use_llm:
+        return TestPlanGenerator()
+    return LLMTestPlanGenerator(
+        _llm_client(),
+        allow_fallback=allow_llm_fallback,
+    )
+
+
+@lru_cache
+def _test_plan_execution_job_queue() -> TestPlanExecutionJobQueue:
+    settings = _settings()
+    if settings.generation_job_queue_backend == "rq":
+        return RedisRQTestPlanExecutionJobQueue(
+            settings,
+            TestPlanExecutionJobStore(settings),
+        )
+    store = TestPlanExecutionJobStore(settings) if settings.database_backend == "sqlite" else None
+    return InMemoryTestPlanExecutionJobQueue(
+        settings,
+        _execute_test_plan_request,
+        store=store,
+    )
 
 
 @router.post("/test-cases/generate", response_model=GenerateResponse, tags=["test-cases"])
@@ -183,6 +265,143 @@ def export_test_cases(request: ExportRequest) -> StreamingResponse:
         stream,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": _content_disposition(filename)},
+    )
+
+
+@router.post("/test-cases/export/pytest", tags=["test-cases"])
+def export_pytest_template(request: PytestExportRequest) -> StreamingResponse:
+    stream = build_pytest_template(request)
+    filename = request.filename or DEFAULT_PYTEST_EXPORT_FILENAME
+    return StreamingResponse(
+        stream,
+        media_type="text/x-python; charset=utf-8",
+        headers={"Content-Disposition": _content_disposition(filename)},
+    )
+
+
+@router.post(
+    "/evaluation/coverage",
+    response_model=CoverageEvaluationResponse,
+    tags=["evaluation"],
+)
+def evaluate_coverage(
+    request: CoverageEvaluationRequest,
+) -> CoverageEvaluationResponse:
+    return evaluate_requirement_coverage(request)
+
+
+@router.post(
+    "/test-plans/generate",
+    response_model=TestPlan,
+    tags=["test-plans"],
+)
+def generate_test_plan(request: TestPlanGenerationRequest) -> TestPlan:
+    try:
+        return _test_plan_generator(
+            use_llm=request.use_llm,
+            allow_llm_fallback=request.allow_llm_fallback,
+        ).generate(request)
+    except MissingApiKeyError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (LLMError, TestPlanOutputValidationError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post(
+    "/test-plans/execute-step",
+    response_model=ToolRun,
+    tags=["test-plans"],
+)
+def execute_test_plan_step(request: TestPlanStepExecutionRequest) -> ToolRun:
+    return _tool_execution_service(request.http_base_url).execute_step(request.step)
+
+
+@router.post(
+    "/test-plans/execute",
+    response_model=TestExecutionReport,
+    tags=["test-plans"],
+)
+def execute_test_plan(request: TestPlanExecutionRequest) -> TestExecutionReport:
+    tool_runs = _tool_execution_service(request.http_base_url).execute_plan(request.plan)
+    return build_execution_report(request.plan, tool_runs)
+
+
+@router.post(
+    "/test-plans/execution-jobs",
+    response_model=TestPlanExecutionJobDetail,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["test-plans"],
+)
+def submit_test_plan_execution_job(
+    request: TestPlanExecutionRequest,
+) -> TestPlanExecutionJobDetail:
+    try:
+        return _test_plan_execution_job_queue().submit(request)
+    except TestPlanExecutionJobQueueFullError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except TestPlanExecutionJobQueueUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get(
+    "/test-plans/execution-jobs",
+    response_model=TestPlanExecutionJobListResponse,
+    tags=["test-plans"],
+)
+def list_test_plan_execution_jobs(
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    status_filter: Literal["queued", "running", "succeeded", "failed"] | None = Query(
+        default=None,
+        alias="status",
+    ),
+) -> TestPlanExecutionJobListResponse:
+    jobs = _test_plan_execution_job_queue().list_jobs(
+        limit=limit,
+        offset=offset,
+        status=status_filter,
+    )
+    return TestPlanExecutionJobListResponse(jobs=jobs, limit=limit, offset=offset)
+
+
+@router.get(
+    "/test-plans/execution-jobs/{job_id}",
+    response_model=TestPlanExecutionJobDetail,
+    tags=["test-plans"],
+)
+def get_test_plan_execution_job(job_id: str) -> TestPlanExecutionJobDetail:
+    job = _test_plan_execution_job_queue().get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Test plan execution job not found.")
+    return job
+
+
+@router.post(
+    "/evaluation/coverage/gaps/knowledge",
+    response_model=CoverageGapKnowledgeUpsertResponse,
+    tags=["evaluation"],
+)
+def upsert_coverage_gap_knowledge(
+    request: CoverageGapKnowledgeRequest,
+) -> CoverageGapKnowledgeUpsertResponse:
+    try:
+        document, gap_count = build_coverage_gap_knowledge_document(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    added_chunks, replaced_chunks, version = _rag_service().upsert_document(
+        document,
+        chunk_size=request.chunk_size,
+    )
+    return CoverageGapKnowledgeUpsertResponse(
+        source=document.source,
+        version=version,
+        added_chunks=added_chunks,
+        replaced_chunks=replaced_chunks,
+        gap_count=gap_count,
+        document_type=document.document_type,
+        module=document.module,
+        tags=document.tags,
     )
 
 
@@ -332,6 +551,10 @@ def _execute_generation_job(
 ) -> tuple[GenerateResponse, str | None]:
     result = _execute_generation(request, request_id=job_id)
     return result.response, result.record_id
+
+
+def _execute_test_plan_request(request: TestPlanExecutionRequest) -> TestExecutionReport:
+    return run_test_plan_execution_request(request, _settings())
 
 
 def _execute_generation(

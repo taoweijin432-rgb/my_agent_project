@@ -1,0 +1,50 @@
+[
+  {
+    "id": "TC-001",
+    "title": "已注册手机号和有效验证码登录成功",
+    "precondition": "用户已注册，验证码未过期。",
+    "steps": ["输入已注册手机号", "输入有效验证码", "点击登录"],
+    "expected": ["登录成功", "进入系统首页"],
+    "type": "functional"
+  },
+  {
+    "id": "TC-002",
+    "title": "验证码超过 5 分钟后登录失败",
+    "precondition": "用户已获取验证码，且验证码已过期。",
+    "steps": ["输入手机号", "输入超过 5 分钟的验证码", "点击登录"],
+    "expected": ["提示验证码过期", "不能登录"],
+    "type": "boundary"
+  },
+  {
+    "id": "TC-003",
+    "title": "连续 5 次输入错误验证码后锁定 10 分钟",
+    "precondition": "用户账号未锁定。",
+    "steps": ["连续 5 次输入错误验证码", "再次尝试登录"],
+    "expected": ["账号被锁定", "10 分钟内不能继续登录"],
+    "type": "exception"
+  },
+  {
+    "id": "TC-004",
+    "title": "disabled 用户不能登录且不签发 token",
+    "precondition": "用户状态为 disabled。",
+    "steps": ["输入 disabled 用户手机号", "输入有效验证码", "点击登录"],
+    "expected": ["不能登录", "不签发 access_token 或 refresh_token"],
+    "type": "permission"
+  },
+  {
+    "id": "TC-005",
+    "title": "token 不出现在 URL 且不写入应用日志",
+    "precondition": "用户登录成功。",
+    "steps": ["检查登录跳转 URL", "检查应用日志中的登录记录"],
+    "expected": ["access_token 和 refresh_token 不出现在 URL", "token 不写入应用日志"],
+    "type": "security"
+  },
+  {
+    "id": "TC-006",
+    "title": "登录审计日志字段完整",
+    "precondition": "用户完成一次成功登录和一次失败登录。",
+    "steps": ["查询审计日志", "检查日志字段"],
+    "expected": ["日志包含 user_id、ip、user_agent、result、reason、created_at"],
+    "type": "functional"
+  }
+]

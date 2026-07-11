@@ -1,5 +1,7 @@
 from app.models.test_case import GenerateRequest, KnowledgeChunk, TestCaseType as CaseType
-from app.services.prompt import build_generation_messages
+from app.models.test_case import RequirementPoint
+from app.models.test_plan import TestPlanGenerationRequest as PlanRequest
+from app.services.prompt import build_generation_messages, build_test_plan_messages
 
 
 def test_prompt_requires_each_focus_type_when_capacity_allows() -> None:
@@ -61,3 +63,34 @@ def test_prompt_marks_assumptions_when_knowledge_context_is_empty() -> None:
 
     assert "当前没有召回知识库上下文" in messages[1]["content"]
     assert "写明可验证假设" in messages[1]["content"]
+
+
+def test_test_plan_prompt_includes_schema_requirements_and_context() -> None:
+    messages = build_test_plan_messages(
+        PlanRequest(
+            description="退款接口需要覆盖幂等和权限。",
+            requirements=[
+                RequirementPoint(
+                    id="REFUND-001",
+                    title="创建退款 API",
+                    description="POST /api/v1/refunds 创建退款。",
+                    keywords=["POST /api/v1/refunds", "idempotency_key"],
+                    priority="critical",
+                )
+            ],
+            context=[
+                KnowledgeChunk(
+                    content="退款请求必须写入审计日志。",
+                    source="knowledge/audit/refund.md",
+                )
+            ],
+        )
+    )
+
+    user_prompt = messages[1]["content"]
+
+    assert "JSON 顶层字段必须是 title, scope, steps" in messages[0]["content"]
+    assert "REFUND-001" in user_prompt
+    assert "POST /api/v1/refunds" in user_prompt
+    assert "knowledge/audit/refund.md" in user_prompt
+    assert '"tool_args": {"target": "api"}' in user_prompt

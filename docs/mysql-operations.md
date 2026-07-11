@@ -25,7 +25,7 @@ MySQL 不保存：
 复制运行配置：
 
 ```bash
-cp .env.runtime.example .env.runtime
+cp .env.example .env.runtime
 ```
 
 编辑 `.env.runtime`，至少设置：
@@ -42,19 +42,19 @@ MYSQL_PASSWORD=your_agent_password
 启动 Redis、MySQL、API 和 worker：
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.mysql.yml up -d --build
+docker compose --profile mysql up -d --build
 ```
 
 确认容器状态：
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.mysql.yml ps
+docker compose --profile mysql ps
 ```
 
 确认 MySQL schema：
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.mysql.yml exec mysql \
+docker compose --profile mysql exec mysql \
   sh -c 'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -e "show tables;"'
 ```
 
@@ -65,7 +65,7 @@ generation_jobs
 generation_records
 ```
 
-`docker-compose.mysql.yml` 会把 `migrations/mysql/001_initial.sql` 挂载到 `/docker-entrypoint-initdb.d/001_initial.sql`。只有 `mysql-data` volume 第一次初始化时，MySQL 官方镜像才会执行该脚本。volume 已存在时，修改 `MYSQL_*` 环境变量不会重置密码、用户或旧数据。
+`docker-compose.yml` 的 `mysql` profile 会把 `migrations/mysql/001_initial.sql` 挂载到 `/docker-entrypoint-initdb.d/001_initial.sql`。只有 `mysql-data` volume 第一次初始化时，MySQL 官方镜像才会执行该脚本。volume 已存在时，修改 `MYSQL_*` 环境变量不会重置密码、用户或旧数据。
 
 阶段评估：正常。Compose 初始化适合新环境；已有 volume 的 schema 变更应通过 migration 脚本或 `scripts/init_mysql.py` 明确执行。
 
@@ -74,7 +74,7 @@ generation_records
 如果 API/worker 运行在本机 Python，MySQL 运行在 Docker，连接地址使用 `127.0.0.1`：
 
 ```bash
-uv pip install --python ./.venv/bin/python -r requirements-mysql.txt
+uv pip install --python ./.venv/bin/python -r requirements.txt
 DATABASE_URL='mysql://agent_user:your_agent_password@127.0.0.1:3306/agent?charset=utf8mb4' \
   ./.venv/bin/python scripts/init_mysql.py
 ```
@@ -106,7 +106,7 @@ mkdir -p backups/mysql
 Compose MySQL 备份：
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.mysql.yml exec mysql \
+docker compose --profile mysql exec mysql \
   sh -c 'mysqldump --single-transaction --routines --triggers --no-tablespaces -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"' \
   > "backups/mysql/agent-$(date +%Y%m%d-%H%M%S).sql"
 ```
@@ -140,7 +140,7 @@ head -n 20 backups/mysql/<backup-file>.sql
 恢复前先确认目标数据库和备份文件：
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.mysql.yml exec mysql \
+docker compose --profile mysql exec mysql \
   sh -c 'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -e "select count(*) as records from generation_records; select count(*) as jobs from generation_jobs;"'
 ```
 
@@ -148,14 +148,14 @@ docker compose -f docker-compose.yml -f docker-compose.mysql.yml exec mysql \
 
 ```bash
 cat backups/mysql/<backup-file>.sql | \
-  docker compose -f docker-compose.yml -f docker-compose.mysql.yml exec -T mysql \
+  docker compose --profile mysql exec -T mysql \
     sh -c 'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"'
 ```
 
 恢复后检查：
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.mysql.yml exec mysql \
+docker compose --profile mysql exec mysql \
   sh -c 'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -e "show tables; select count(*) as records from generation_records; select count(*) as jobs from generation_jobs;"'
 ```
 
@@ -173,7 +173,7 @@ docker compose -f docker-compose.yml -f docker-compose.mysql.yml exec mysql \
 
 ```bash
 COMPOSE_PROJECT_NAME=agent_restore_test \
-  docker compose -f docker-compose.yml -f docker-compose.mysql.yml up -d mysql
+  docker compose --profile mysql up -d mysql
 ```
 
 恢复备份到演练库：
@@ -181,7 +181,7 @@ COMPOSE_PROJECT_NAME=agent_restore_test \
 ```bash
 cat backups/mysql/<backup-file>.sql | \
   COMPOSE_PROJECT_NAME=agent_restore_test \
-  docker compose -f docker-compose.yml -f docker-compose.mysql.yml exec -T mysql \
+  docker compose --profile mysql exec -T mysql \
     sh -c 'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"'
 ```
 
@@ -189,7 +189,7 @@ cat backups/mysql/<backup-file>.sql | \
 
 ```bash
 COMPOSE_PROJECT_NAME=agent_restore_test \
-  docker compose -f docker-compose.yml -f docker-compose.mysql.yml exec mysql \
+  docker compose --profile mysql exec mysql \
     sh -c 'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -e "select count(*) as records from generation_records; select count(*) as jobs from generation_jobs;"'
 ```
 
@@ -197,7 +197,7 @@ COMPOSE_PROJECT_NAME=agent_restore_test \
 
 ```bash
 COMPOSE_PROJECT_NAME=agent_restore_test \
-  docker compose -f docker-compose.yml -f docker-compose.mysql.yml down
+  docker compose --profile mysql down
 ```
 
 如果确认不再需要演练 volume，再手动清理对应的 `agent_restore_test_mysql-data` volume。
@@ -229,20 +229,20 @@ curl -sS http://127.0.0.1:8000/health
 检查 MySQL 容器健康：
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.mysql.yml ps mysql
+docker compose --profile mysql ps mysql
 ```
 
 检查应用是否写入 MySQL：
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.mysql.yml exec mysql \
+docker compose --profile mysql exec mysql \
   sh -c 'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -e "select id,status,record_id,created_at from generation_jobs order by created_at desc limit 5; select id,status,gate_status,created_at from generation_records order by created_at desc limit 5;"'
 ```
 
 检查 API/worker 当前数据库配置：
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.mysql.yml exec api \
+docker compose --profile mysql exec api \
   python -c "from app.core.config import Settings; s=Settings(); print(s.database_backend); print(s.database_url)"
 ```
 
@@ -263,10 +263,10 @@ docker compose -f docker-compose.yml -f docker-compose.mysql.yml exec api \
 MySQL backend 需要 `PyMySQL`。本机虚拟环境执行：
 
 ```bash
-uv pip install --python ./.venv/bin/python -r requirements-mysql.txt
+uv pip install --python ./.venv/bin/python -r requirements.txt
 ```
 
-Compose 使用 `docker-compose.mysql.yml` 时会把镜像构建参数切到 `REQUIREMENTS_FILE=requirements-mysql.txt`。
+Compose 使用统一 `docker-compose.yml` 的 `mysql` profile，`PyMySQL` 已在 `requirements.txt` 中声明。
 
 ### 8.4 初始化脚本没有执行
 
@@ -284,4 +284,4 @@ MySQL 初始化、备份、恢复文档、一次恢复演练、完整 Compose AP
 - RQ `queue_count=0`、`failed_count=0`、`finished_count=5`。
 - 重启 API/worker 后仍可查询最后一个 job 的失败状态和 `record_id`。
 
-总评估：正常。MySQL backend 已具备可操作的初始化、备份和恢复流程，并已完成一次恢复演练、完整 Compose API/worker 镜像 smoke 和多任务稳定性 smoke；真正切生产默认前仍建议补 worker crash、Redis/MySQL 短暂不可用和更长时长运行验证。
+总评估：正常。MySQL backend 已具备可操作的初始化、备份和恢复流程，并已完成一次备份恢复演练、完整 Compose API/worker 镜像 smoke、stale 恢复 smoke 和多任务稳定性 smoke；真正切生产默认前仍建议补 Redis/MySQL 短暂不可用和更长时长运行验证。

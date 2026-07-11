@@ -1,20 +1,10 @@
 import pytest
-from fastapi.testclient import TestClient
 
 from app.api import routes
-from app.api.routes import require_api_key
-from app.main import app
-from app.models.test_case import KnowledgeDocumentSummary
-
-
-client = TestClient(app)
-
-
-@pytest.fixture(autouse=True)
-def bypass_api_key() -> None:
-    app.dependency_overrides[require_api_key] = lambda: None
-    yield
-    app.dependency_overrides.pop(require_api_key, None)
+from app.models.test_case import (
+    KnowledgeDocumentSummary,
+    KnowledgeDocumentUpsertRequest,
+)
 
 
 class FakeRagService:
@@ -54,33 +44,31 @@ def fake_rag(monkeypatch) -> FakeRagService:
 
 
 def test_list_knowledge_documents(fake_rag) -> None:
-    response = client.get("/api/v1/knowledge/documents?limit=10&offset=0")
+    response = routes.list_knowledge_documents(limit=10, offset=0)
 
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["total"] == 1
-    assert payload["documents"][0]["source"] == "knowledge/prd/login.md"
-    assert payload["documents"][0]["version"] == 2
-    assert payload["documents"][0]["chunk_count"] == 3
+    assert response.total == 1
+    assert response.documents[0].source == "knowledge/prd/login.md"
+    assert response.documents[0].version == 2
+    assert response.documents[0].chunk_count == 3
 
 
 def test_upsert_knowledge_document(fake_rag) -> None:
-    response = client.post(
-        "/api/v1/knowledge/documents/upsert",
-        json={
-            "document": {
-                "source": "knowledge/prd/login.md",
-                "content": "账号密码登录规则",
-                "document_type": "prd",
-                "module": "login",
-                "tags": ["prd", "login"],
-            },
-            "chunk_size": 500,
-        },
+    response = routes.upsert_knowledge_document(
+        KnowledgeDocumentUpsertRequest.model_validate(
+            {
+                "document": {
+                    "source": "knowledge/prd/login.md",
+                    "content": "账号密码登录规则",
+                    "document_type": "prd",
+                    "module": "login",
+                    "tags": ["prd", "login"],
+                },
+                "chunk_size": 500,
+            }
+        )
     )
 
-    assert response.status_code == 200
-    assert response.json() == {
+    assert response.model_dump() == {
         "source": "knowledge/prd/login.md",
         "version": 3,
         "added_chunks": 2,
@@ -91,13 +79,9 @@ def test_upsert_knowledge_document(fake_rag) -> None:
 
 
 def test_delete_knowledge_document(fake_rag) -> None:
-    response = client.delete(
-        "/api/v1/knowledge/documents",
-        params={"source": "knowledge/prd/login.md"},
-    )
+    response = routes.delete_knowledge_document(source="knowledge/prd/login.md")
 
-    assert response.status_code == 200
-    assert response.json() == {
+    assert response.model_dump() == {
         "source": "knowledge/prd/login.md",
         "deleted_chunks": 3,
     }

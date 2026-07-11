@@ -1,9 +1,10 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
 from app.core.config import get_settings, validate_startup_settings
 from app.core.middleware import add_request_middleware
+from app.services.readiness import build_readiness_report, readiness_status_code
 
 
 def create_app() -> FastAPI:
@@ -23,6 +24,12 @@ def create_app() -> FastAPI:
     @app.get("/health", tags=["system"])
     def health() -> dict[str, str]:
         return {"status": "ok", "service": settings.app_name}
+
+    @app.get("/ready", tags=["system"])
+    def ready(response: Response) -> dict:
+        report = build_readiness_report(settings)
+        response.status_code = readiness_status_code(report)
+        return report
 
     return app
 

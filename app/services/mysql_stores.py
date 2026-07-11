@@ -608,7 +608,7 @@ def _connect(database_url: str):
         from pymysql.cursors import DictCursor
     except ModuleNotFoundError as exc:
         raise MySQLDependencyError(
-            "PyMySQL is not installed. Install requirements-mysql.txt before "
+            "PyMySQL is not installed. Install the unified requirements.txt before "
             "using DATABASE_BACKEND=mysql."
         ) from exc
     return pymysql.connect(**_parse_mysql_url(database_url), cursorclass=DictCursor)

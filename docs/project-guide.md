@@ -10,13 +10,14 @@
 - 结合企业知识库中的 PRD、历史测试用例、测试规范等资料。
 - 调用智谱大模型生成结构化测试用例。
 - 用 Pydantic 校验输出格式。
-- 最终通过 API 返回 JSON，或导出为 Excel。
+- 最终通过 API 返回 JSON，导出为 Excel 或 pytest 自动化模板。
+- 对生成用例和 PRD 验收点做覆盖率评估，辅助发现遗漏。
 
-可以把它理解成一个后端服务，不是聊天机器人页面。其他项目可以通过 HTTP API 调用它。
+可以把它理解成一个可被其他系统集成的后端服务。仓库同时提供 React + Vite 前端工作台，用于本地操作、演示和验证主要流程；正式生产中的用户、项目、权限和用例管理仍建议由外部测试平台或后续生产级后台承接。
 
 ## 2. 一句话流程
 
-用户输入需求描述 -> 工作流状态初始化 -> 需求分析 -> Chroma 检索相关知识 -> 召回不足时 query rewrite 并再检索 -> 测试策略规划 -> 构造 Prompt -> 成本预算门控 -> 调用智谱 LLM JSON Mode -> Pydantic 校验 -> 后处理 -> Reviewer 审查、质量门控和条件重试 -> usage 估算和历史记录 -> 返回测试用例 JSON 或 Excel。
+用户输入需求描述 -> 工作流状态初始化 -> 需求分析 -> Chroma 检索相关知识 -> 召回不足时 query rewrite 并再检索 -> 测试策略规划 -> 构造 Prompt -> 成本预算门控 -> 调用智谱 LLM JSON Mode -> Pydantic 校验 -> 后处理 -> Reviewer 审查、质量门控和条件重试 -> usage 估算和历史记录 -> 返回测试用例 JSON、Excel、pytest 模板或覆盖率评估报告。
 
 ## 3. 核心能力
 
@@ -30,6 +31,9 @@
 - Pydantic 校验测试用例字段和类型。
 - 格式错误时自动重试。
 - 支持 Excel 导出。
+- 支持 pytest 自动化模板导出。
+- 支持需求点到测试用例的覆盖率评估。
+- 提供 React + Vite 前端工作台，覆盖生成、任务、知识库、历史、门控和覆盖率评估入口。
 - 支持其他项目通过 API 集成。
 
 ## 4. 项目目录说明
@@ -51,17 +55,29 @@ app/
     agent_workflow.py     Agent 工作流状态、节点抽象和测试策略规划
     query_rewrite.py      RAG 召回不足时的本地查询改写
     reviewer.py           Reviewer 节点的本地质量审查和重试反馈
+    coverage.py           需求覆盖率评估
     excel_exporter.py     Excel 导出
+    pytest_exporter.py    pytest 模板导出
+
+frontend/
+  src/App.tsx             前端工作台页面组合和状态编排
+  src/api/client.ts       API client 和 URL、query、错误归一化工具
+  src/api/download.ts     Blob 下载工具
+  src/api/settings.ts     API Base 和 API Key 持久化
+  src/api/types.ts        后端 DTO TypeScript 类型
 
 scripts/
   ingest_documents.py     命令行导入知识库文档
   run_server.py           服务启动脚本
+  compare_generation_efficiency.py 生成效率和覆盖率对比脚本
 
 tests/
   test_models.py          数据模型校验测试
 
-requirements.txt          Python 依赖
-README.md                 使用说明
+requirements.txt          统一后端依赖入口，包含运行、测试、lint 和类型检查依赖
+constraints.txt           关键依赖版本约束
+README.md                 项目入口和快速启动
+docs/README.md            正式文档总览
 ```
 
 ## 5. 主要 API
@@ -70,16 +86,29 @@ README.md                 使用说明
 
 ```http
 GET /health
+GET /ready
 ```
 
-用于确认服务是否启动成功。
+`/health` 用于确认服务进程是否启动成功；`/ready` 用于内部 readiness 检查，会验证生产配置、运行目录可写性、数据库任务状态库、队列依赖和 LLM key 配置。`/ready` 不调用真实 LLM，检查失败时 HTTP 状态码为 503。
 
-返回示例：
+`/health` 返回示例：
 
 ```json
 {
   "status": "ok",
   "service": "AI Test Case Generator"
+}
+```
+
+`/ready` 返回示例：
+
+```json
+{
+  "ready": true,
+  "status": "ready",
+  "service": "AI Test Case Generator",
+  "environment": "development",
+  "checks": []
 }
 ```
 
@@ -148,7 +177,7 @@ GET /api/v1/test-cases/generation-jobs/{job_id}
 - `succeeded`：生成完成，详情里包含 `response`。
 - `failed`：生成失败，详情里包含 `error`；如果是预算或质量门控失败，`error.gate` 会包含 human-in-the-loop 结构化信息。
 
-队列配置由 `GENERATION_JOB_QUEUE_BACKEND`、`GENERATION_JOB_MAX_QUEUE_SIZE`、`GENERATION_JOB_RETENTION_SECONDS`、`GENERATION_JOB_STALE_AFTER_SECONDS`、`REDIS_URL` 和 `RQ_QUEUE_NAME` 控制。默认 `in_memory` backend 适合本地开发；`rq` backend 使用 Redis/RQ 派发任务，并把任务状态写入当前 `DATABASE_BACKEND` 对应的数据库。worker 启动时会把超过 stale 阈值仍处于 `running` 的任务标记为失败。默认 SQLite 状态库适合单机部署；MySQL backend 已实现并通过本机 Docker smoke、备份恢复、Compose 模板和 5 任务稳定性 smoke，多实例生产还需要补故障恢复、队列可观测性和更长时长运行验证。
+队列配置由 `GENERATION_JOB_QUEUE_BACKEND`、`GENERATION_JOB_MAX_QUEUE_SIZE`、`GENERATION_JOB_RETENTION_SECONDS`、`GENERATION_JOB_STALE_AFTER_SECONDS`、`REDIS_URL` 和 `RQ_QUEUE_NAME` 控制。默认 `in_memory` backend 适合本地开发；`rq` backend 使用 Redis/RQ 派发任务，并把任务状态写入当前 `DATABASE_BACKEND` 对应的数据库。worker 启动时会把超过 stale 阈值仍处于 `running` 的任务标记为失败。默认 SQLite 状态库适合单机部署；MySQL backend 已实现并通过本机 Docker smoke、备份恢复、Compose 模板、stale 恢复 smoke 和 5 任务稳定性 smoke，多实例生产还需要补队列可观测性、Redis/MySQL 短暂不可用演练和更长时长运行验证。
 
 ### 5.3 导出 Excel
 
@@ -158,7 +187,233 @@ POST /api/v1/test-cases/export
 
 输入一组测试用例，返回 Excel 文件流。
 
-### 5.4 导入知识库
+### 5.4 导出 pytest
+
+```http
+POST /api/v1/test-cases/export/pytest
+```
+
+输入一组测试用例，返回 Python 文件流。默认 `adapter=template`，导出的模板默认 `skip_by_default=true`，其中 `execute_case()` 需要测试人员补充真实 API 或 UI 自动化操作。
+
+如果设置 `adapter=login_api`，会导出一个可执行的登录 API pytest adapter 示例。该 adapter 使用 Python 标准库 `urllib.request` 调用登录接口，读取 `LOGIN_USERNAME`、`LOGIN_PASSWORD`、`INVALID_LOGIN_PASSWORD`、`LOGIN_ENDPOINT` 和 `target_base_url_env` 指定的 base URL 环境变量。要真正执行该 adapter，需要显式设置 `skip_by_default=false` 并配置目标服务地址和测试账号。
+
+请求示例：
+
+```json
+{
+  "cases": [
+    {
+      "id": "TC-001",
+      "title": "有效手机号和验证码登录成功",
+      "precondition": "用户已注册，验证码未过期。",
+      "steps": ["输入手机号", "输入验证码", "点击登录"],
+      "expected": ["登录成功"],
+      "type": "functional"
+    }
+  ],
+  "filename": "login_generated_cases.py",
+  "target_base_url_env": "LOGIN_BASE_URL",
+  "skip_by_default": true,
+  "adapter": "template"
+}
+```
+
+登录 API adapter 示例：
+
+```json
+{
+  "cases": [
+    {
+      "id": "TC-LOGIN-001",
+      "title": "有效账号密码登录成功",
+      "precondition": "测试账号已存在。",
+      "steps": ["输入用户名", "输入正确密码", "提交登录"],
+      "expected": ["登录成功"],
+      "type": "functional"
+    }
+  ],
+  "filename": "login_api_cases.py",
+  "target_base_url_env": "LOGIN_BASE_URL",
+  "skip_by_default": false,
+  "adapter": "login_api"
+}
+```
+
+### 5.5 生成测试计划
+
+```http
+POST /api/v1/test-plans/generate
+```
+
+输入需求描述、结构化需求点和可选知识库上下文，返回 `TestPlan`。默认使用规则 planner；如果需要真实模型生成，设置 `use_llm=true`。`allow_llm_fallback=false` 时，模型调用或输出校验失败会直接返回错误，不回退到规则 planner。
+
+请求示例：
+
+```json
+{
+  "description": "订单退款接口需要支持创建退款、幂等冲突和无权限拒绝。",
+  "requirements": [
+    {
+      "id": "REFUND-001",
+      "title": "创建退款 API",
+      "description": "POST /api/v1/refunds 创建退款，重复 idempotency_key 需要返回冲突。",
+      "keywords": ["POST /api/v1/refunds", "idempotency_key", "冲突"],
+      "priority": "critical"
+    }
+  ],
+  "max_steps": 3,
+  "use_llm": true,
+  "allow_llm_fallback": true
+}
+```
+
+### 5.6 执行测试计划
+
+```http
+POST /api/v1/test-plans/execute-step
+POST /api/v1/test-plans/execute
+POST /api/v1/test-plans/execution-jobs
+GET /api/v1/test-plans/execution-jobs
+GET /api/v1/test-plans/execution-jobs/{job_id}
+```
+
+`execute-step` 执行单个 `TestPlanStep` 并返回 `ToolRun`。`execute` 执行整份 `TestPlan` 并返回 `TestExecutionReport`。默认注册 HTTP adapter；`manual` 步骤会返回 `skipped`，未注册工具会返回 `blocked`。如果配置了 `TEST_TOOL_HTTP_BASE_URL_ALLOWLIST`，`http_base_url` 必须命中 allowlist。pytest adapter 默认关闭，只有设置 `TEST_TOOL_PYTEST_ENABLED=true` 后才会注册，并受 `TEST_TOOL_PYTEST_ALLOWED_PATHS` 限制。HTTP 响应摘要和 pytest stdout/stderr 会写入 `TEST_TOOL_ARTIFACT_DIR`，路径返回在 `ToolRun.artifact_paths`。单个 artifact 文件受 `TEST_TOOL_ARTIFACT_MAX_BYTES` 截断保护，过期 artifact 可通过 `scripts/cleanup_tool_artifacts.py` 按 `TEST_TOOL_ARTIFACT_RETENTION_SECONDS` 清理。
+
+`execution-jobs` 提供异步执行入口，提交请求后返回 `queued/running/succeeded/failed` 状态，可通过列表和详情接口查询执行报告。默认 `GENERATION_JOB_QUEUE_BACKEND=in_memory` 时使用 API 进程内 worker；设置 `GENERATION_JOB_QUEUE_BACKEND=rq` 后，测试计划执行 job 会写入 `GENERATION_HISTORY_DB_PATH` 指向的 SQLite store，并派发到 Redis/RQ，由 `scripts/run_generation_worker.py` 监听同一队列执行。服务或 worker 启动时会把超过 `GENERATION_JOB_STALE_AFTER_SECONDS` 仍处于 `running` 的测试计划执行任务标记为 failed。
+
+`http_base_url` 必须是明确的 HTTP/HTTPS base URL，步骤中的 HTTP path 只能是相对路径，不能传入完整外部 URL。
+
+单步骤请求示例：
+
+```json
+{
+  "http_base_url": "http://127.0.0.1:8000",
+  "step": {
+    "id": "TP-001",
+    "title": "验证创建退款",
+    "objective": "调用创建退款接口",
+    "requirement_ids": ["REFUND-001"],
+    "test_types": ["functional"],
+    "priority": "critical",
+    "tool": "http",
+    "tool_args": {
+      "method": "POST",
+      "path": "/api/v1/refunds",
+      "expected_status": [200, 201],
+      "json": {"idempotency_key": "k-1"}
+    },
+    "success_criteria": ["创建退款成功"]
+  }
+}
+```
+
+整计划请求示例：
+
+```json
+{
+  "http_base_url": "http://127.0.0.1:8000",
+  "plan": {
+    "id": "plan-refund",
+    "title": "退款接口测试计划",
+    "steps": [
+      {
+        "id": "TP-001",
+        "title": "验证创建退款",
+        "objective": "调用创建退款接口",
+        "requirement_ids": ["REFUND-001"],
+        "tool": "http",
+        "tool_args": {"path": "/api/v1/refunds", "expected_status": 200}
+      }
+    ]
+  }
+}
+```
+
+### 5.7 评估需求覆盖率
+
+```http
+POST /api/v1/evaluation/coverage
+```
+
+输入需求验收点和测试用例，返回需求覆盖率、关键词覆盖率、未覆盖需求 ID、匹配用例和缺失关键词。该接口是确定性规则初筛，不能替代人工需求评审。
+
+请求示例：
+
+```json
+{
+  "requirements": [
+    {
+      "id": "REQ-LOGIN-001",
+      "title": "有效手机号和验证码登录成功",
+      "keywords": ["有效验证码", "登录成功"],
+      "priority": "high"
+    }
+  ],
+  "cases": [
+    {
+      "id": "TC-001",
+      "title": "手机号验证码登录成功",
+      "precondition": "用户已注册。",
+      "steps": ["输入手机号", "输入验证码", "点击登录"],
+      "expected": ["登录成功"],
+      "type": "functional"
+    }
+  ],
+  "min_keyword_match_ratio": 1.0
+}
+```
+
+### 5.8 沉淀覆盖缺口到知识库
+
+```http
+POST /api/v1/evaluation/coverage/gaps/knowledge
+```
+
+输入覆盖率评估结果，服务会把人工确认后的未覆盖需求整理成一篇知识库文档，并通过 RAG upsert 写入指定 `source`。默认只写入未覆盖项；`include_covered=true` 时可连同已覆盖项一起归档。
+
+请求示例：
+
+```json
+{
+  "coverage": {
+    "total_requirements": 1,
+    "covered_requirements": 0,
+    "coverage_rate": 0,
+    "total_keywords": 2,
+    "matched_keywords": 1,
+    "keyword_coverage_rate": 0.5,
+    "uncovered_requirement_ids": ["REQ-LOGIN-002"],
+    "items": [
+      {
+        "requirement": {
+          "id": "REQ-LOGIN-002",
+          "title": "验证码错误提示",
+          "description": "验证码错误时需要明确提示。",
+          "keywords": ["验证码错误", "提示"],
+          "priority": "high",
+          "source": "prd-login"
+        },
+        "covered": false,
+        "coverage_score": 0.5,
+        "matched_case_ids": [],
+        "matched_case_titles": [],
+        "matched_keywords": ["验证码错误"],
+        "missing_keywords": ["提示"]
+      }
+    ],
+    "warnings": ["uncovered_requirements"],
+    "recommendations": ["补充未覆盖验收点对应的测试用例：REQ-LOGIN-002。"]
+  },
+  "source": "knowledge/evaluation/login-coverage-gaps.md",
+  "module": "login",
+  "tags": ["coverage-gap", "login"],
+  "chunk_size": 900
+}
+```
+
+返回会包含 `source`、`version`、`added_chunks`、`replaced_chunks` 和 `gap_count`。前端覆盖率页已提供“确认沉淀缺口”入口。
+
+### 5.9 导入知识库
 
 ```http
 POST /api/v1/knowledge/ingest
@@ -180,7 +435,7 @@ POST /api/v1/knowledge/ingest
 
 作用是把 PRD、历史用例、测试规范等文本切分后写入 Chroma。
 
-### 5.5 查询知识库
+### 5.10 查询知识库
 
 ```http
 POST /api/v1/knowledge/query
@@ -197,7 +452,7 @@ POST /api/v1/knowledge/query
 }
 ```
 
-### 5.6 管理知识库文档
+### 5.11 管理知识库文档
 
 ```http
 GET /api/v1/knowledge/documents
@@ -207,7 +462,7 @@ DELETE /api/v1/knowledge/documents?source=knowledge/prd/login.md
 
 文档管理接口用于查看当前索引里的文档清单、按 `source` 更新单个文档、按 `source` 删除文档。upsert 会替换同 `source` 的旧 chunk，并把当前文档版本号加 1。
 
-### 5.7 查询和处理门控记录
+### 5.12 查询和处理门控记录
 
 ```http
 GET /api/v1/generation-gates?status=pending
@@ -361,6 +616,7 @@ Prompt 相关代码在 `app/services/prompt.py`。
 
 ```text
 APP_API_KEY
+APP_API_KEYS
 APP_ENV
 ZHIPU_API_KEY
 ZHIPU_BASE_URL
@@ -396,10 +652,18 @@ RQ_JOB_TIMEOUT_SECONDS
 RQ_RESULT_TTL_SECONDS
 RQ_FAILURE_TTL_SECONDS
 GENERATION_JOB_STALE_AFTER_SECONDS
+TEST_TOOL_PYTEST_ENABLED
+TEST_TOOL_HTTP_BASE_URL_ALLOWLIST
+TEST_TOOL_ARTIFACT_DIR
+TEST_TOOL_ARTIFACT_MAX_BYTES
+TEST_TOOL_ARTIFACT_RETENTION_SECONDS
+TEST_TOOL_PYTEST_ALLOWED_PATHS
+TEST_TOOL_PYTEST_TIMEOUT_SECONDS
 RATE_LIMIT_ENABLED
 RATE_LIMIT_REQUESTS
 RATE_LIMIT_WINDOW_SECONDS
 REQUEST_LOG_ENABLED
+REQUEST_LOG_FORMAT
 DATABASE_BACKEND
 DATABASE_URL
 GENERATION_HISTORY_ENABLED
@@ -410,7 +674,7 @@ CORS_ALLOW_CREDENTIALS
 
 项目也兼容读取当前已有的 `.env/config.py`。
 
-注意：`.env/config.py` 里如果有真实 API Key 或服务调用密钥，不要提交到版本库。除 `/health` 外，业务接口需要在请求头携带 `X-API-Key`。服务会为响应增加 `X-Request-ID` 和 `X-Process-Time-ms`，并默认对 `/api/v1/*` 做内存级限流。生成接口默认把生成请求、响应、失败原因和耗时写入 `DATABASE_BACKEND=sqlite`、`GENERATION_HISTORY_DB_PATH` 指向的 SQLite 数据库；`DATABASE_BACKEND=mysql` 代码路径已实现并通过本机 Docker MySQL smoke，启用前需要安装 `requirements-mysql.txt` 并初始化 schema。异步生成可使用进程内 worker 或 Redis/RQ 外部队列；直接在 WSL/本机 Python 运行时可用 `REDIS_URL=redis://127.0.0.1:6379/0`，Docker Compose 内部使用 `REDIS_URL=redis://redis:6379/0`。`AGENT_WORKFLOW_BACKEND` 默认使用 `langgraph`；`local` backend 保留为 fallback 和行为对照。Reviewer 默认开启并写入 `metadata.review`；自动重试默认关闭，避免隐式增加 LLM 成本。
+注意：`.env/config.py` 里如果有真实 API Key 或服务调用密钥，不要提交到版本库。除 `/health` 外，业务接口需要在请求头携带 `X-API-Key`。服务接受 `APP_API_KEY` 单 key，也接受逗号分隔的 `APP_API_KEYS` 多 key；多 key 适合滚动轮换服务调用密钥。服务会为响应增加 `X-Request-ID` 和 `X-Process-Time-ms`，并默认对 `/api/v1/*` 做内存级限流。请求日志默认是文本格式，也可以设置 `REQUEST_LOG_FORMAT=json` 便于容器和集中日志系统采集。生成接口默认把生成请求、响应、失败原因和耗时写入 `DATABASE_BACKEND=sqlite`、`GENERATION_HISTORY_DB_PATH` 指向的 SQLite 数据库；`DATABASE_BACKEND=mysql` 代码路径已实现并通过本机 Docker MySQL smoke，依赖已纳入统一 `requirements.txt`，启用前需要初始化 schema。异步生成可使用进程内 worker 或 Redis/RQ 外部队列；直接在 WSL/本机 Python 运行时可用 `REDIS_URL=redis://127.0.0.1:6379/0`，Docker Compose 内部使用 `REDIS_URL=redis://redis:6379/0`。测试计划执行接口默认启用 HTTP adapter，可通过 `TEST_TOOL_HTTP_BASE_URL_ALLOWLIST` 收紧允许访问的目标服务；工具执行证据写入 `TEST_TOOL_ARTIFACT_DIR`，并受 `TEST_TOOL_ARTIFACT_MAX_BYTES` 限制；`TEST_TOOL_ARTIFACT_RETENTION_SECONDS` 控制 `scripts/cleanup_tool_artifacts.py` 的过期清理窗口；pytest adapter 需要显式设置 `TEST_TOOL_PYTEST_ENABLED=true`，并受 `TEST_TOOL_PYTEST_ALLOWED_PATHS` 和 `TEST_TOOL_PYTEST_TIMEOUT_SECONDS` 控制。`AGENT_WORKFLOW_BACKEND` 默认使用 `langgraph`；`local` backend 保留为 fallback 和行为对照。Reviewer 默认开启并写入 `metadata.review`；自动重试默认关闭，避免隐式增加 LLM 成本。
 
 生产环境应设置 `APP_ENV=production`。此时应用会在启动时强制校验关键配置，包括真实服务密钥、真实模型密钥、HTTPS CORS 来源、语义 embedding、限流、请求日志、Agent Reviewer 和持久化历史库路径；校验失败会拒绝启动。
 
@@ -421,6 +685,8 @@ CORS_ALLOW_CREDENTIALS
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
+
+`requirements.txt` 是唯一后端安装入口，包含 API、worker、RAG、MySQL backend、测试和 lint 所需依赖。语义 embedding 依赖体积较大，不进入默认安装；需要 `EMBEDDING_PROVIDER=sentence_transformers` 时，按部署文档中的可选安装命令单独安装。
 
 启动服务：
 
@@ -434,10 +700,28 @@ CORS_ALLOW_CREDENTIALS
 http://127.0.0.1:8000/docs
 ```
 
+启动前端工作台：
+
+```powershell
+cd frontend
+npm install --ignore-scripts --omit=optional
+npm run dev
+```
+
+前端默认访问 `http://127.0.0.1:5173`，开发模式通过 Vite proxy 转发到本地 FastAPI。更多前端配置、测试和构建说明见 [frontend/README.md](../frontend/README.md)。
+
 运行测试：
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q
+```
+
+前端测试和构建：
+
+```powershell
+cd frontend
+npm test
+npm run build
 ```
 
 ## 12. 如何导入企业知识
@@ -473,12 +757,15 @@ POST /api/v1/knowledge/ingest
 - 测试平台传入需求描述，调用生成接口。
 - 服务返回 `cases`。
 - 测试平台把 `cases` 映射成自己的用例字段。
-- 如果需要 Excel，调用导出接口。
+- 如果需要 Excel，调用 Excel 导出接口。
+- 如果需要推进自动化落地，调用 pytest 导出接口；默认模板由测试人员补充真实执行逻辑，登录 API 场景可先使用 `adapter=login_api` 示例。
+- 如果需要检查覆盖缺口，调用覆盖率评估接口，把 PRD 验收点和生成用例做映射。
 
 推荐集成边界：
 
 - 这个服务负责 AI 生成、RAG、格式校验。
-- 外部平台负责用户界面、权限、项目管理、用例审批和落库。
+- 仓库内置前端工作台负责本地操作和演示。
+- 外部平台或后续生产级后台负责用户体系、权限、项目管理、用例审批和落库。
 
 ## 14. 后续扩展点
 
@@ -490,6 +777,8 @@ POST /api/v1/knowledge/ingest
 - 补齐 MySQL 生产化：Compose 服务模板、备份恢复、连接池参数、稳定性验证和默认 backend 切换评估。
 - 增强 Redis/RQ 队列治理，例如原子背压、队列指标、失败率统计和 worker 运行时长监控。
 - 增强用例质量评分，例如覆盖率、风险等级和人工验收结果回流。
+- 增强覆盖率评估，例如同义词、权重、语义相似度和人工确认结果回流。
+- 扩展更多可执行自动化 adapter，例如支付、退款或 UI 自动化示例。
 - 增加用户可配置的测试策略模板。
 - 增加用户体系和项目级权限隔离。
 
@@ -534,5 +823,7 @@ POST /api/v1/knowledge/ingest
 - Schema 校验。
 - JSON 返回。
 - Excel 导出。
+- pytest 模板导出。
+- 需求覆盖率评估。
 
 它适合作为第一个可集成版本。后续重点不是重写架构，而是增强知识库质量、模型稳定性、平台集成和权限安全。
