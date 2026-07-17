@@ -148,6 +148,7 @@ estimate_usage
 - 生成历史和门控审计。
 - 需求覆盖率评估和缺口反馈。
 - Excel 与 pytest 模板导出。
+- 内部运行指标 JSON 和 Prometheus 文本输出，覆盖 readiness、job 状态计数、生成历史成功/失败、generation gate 状态、历史 token/cost 聚合、队列 registry/worker、HTTP 请求量/状态码/耗时桶，以及 LLM 配置、call/attempt/retry/错误码/耗时桶指标。
 - 进程内异步任务队列、Redis/RQ 外部队列和队列满背压。
 - 数据库 backend 抽象，默认 SQLite，MySQL backend 已完成本机 Docker smoke。
 
@@ -156,7 +157,7 @@ estimate_usage
 - HTTPS 网关。
 - 网关层限流。
 - 集中日志。
-- metrics 和告警。
+- metrics 采集系统和告警规则落地。
 - MySQL 生产部署硬化、备份恢复和默认 backend 切换。
 - 队列可观测性和严格原子背压。
 - 密钥管理。
@@ -168,14 +169,14 @@ estimate_usage
 - 保留 API 模型：`GenerationJobDetail`、`GenerationJobSummary`、`GenerationJobError`。
 - 保留 API 路径：`/test-cases/generation-jobs`。
 - 已新增 Redis/RQ adapter，并把任务状态写入配置化数据库 backend。
-- 默认 SQLite 适合单机部署；MySQL backend 已实现并通过 Redis/RQ worker smoke、备份恢复、Compose 模板、stale 恢复 smoke 和 5 任务稳定性 smoke，但生产默认切换仍需 Redis/MySQL 短暂不可用演练和更长时长运行验证。
+- 默认 SQLite 适合单机部署；MySQL backend 已实现并通过 Redis/RQ worker smoke、备份恢复、Compose 模板、stale 恢复 smoke、5 任务稳定性 smoke、Redis/MySQL 短暂不可用演练脚本、RQ worker stability smoke、queue alert 阈值检查和测试计划执行 job MySQL 持久化验证；生产默认切换仍需补更长时长运行验证。
 
 MySQL 现状：
 
 - 已保留 `GenerationHistoryStore` 对外方法语义，并新增 repository protocol/factory。
 - 已将 SQLite 运行表结构映射为 `migrations/mysql/001_initial.sql`。
 - 已把生成历史、门控处理、异步任务状态纳入 MySQL backend。
-- 当前默认仍是 `DATABASE_BACKEND=sqlite`；Compose MySQL 模板、备份恢复文档、端到端 smoke、stale 恢复 smoke、备份恢复演练和 5 任务稳定性 smoke 已完成，生产切换前仍需要 Redis/MySQL 短暂不可用和更长时长运行验证。
+- 当前默认仍是 `DATABASE_BACKEND=sqlite`；Compose MySQL 模板、备份恢复文档、端到端 smoke、stale 恢复 smoke、备份恢复演练、5 任务稳定性 smoke、Redis/MySQL 短暂不可用演练脚本、RQ worker stability smoke、queue alert 阈值检查和测试计划执行 job MySQL 持久化验证已完成。生产切换前仍需要补更长时长运行验证。
 
 LangGraph 升级：
 

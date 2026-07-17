@@ -17,6 +17,7 @@
 | 测试执行 Agent 改造计划 | [test-agent-transformation-plan.md](test-agent-transformation-plan.md) |
 | 测试执行 Agent 改造阶段评估 | [test-agent-transformation-assessment.md](test-agent-transformation-assessment.md) |
 | RAG 固定评估、指标和运行命令 | [rag-evaluation.md](rag-evaluation.md) |
+| 内部 metrics、Prometheus/Alertmanager 抓取和告警规则模板 | [monitoring.md](monitoring.md) |
 | MySQL 初始化、备份、恢复和演练 | [mysql-operations.md](mysql-operations.md) |
 | 登录场景效率评估结果 | [login-efficiency-report.md](login-efficiency-report.md) |
 

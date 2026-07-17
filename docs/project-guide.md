@@ -33,7 +33,7 @@
 - 支持 Excel 导出。
 - 支持 pytest 自动化模板导出。
 - 支持需求点到测试用例的覆盖率评估。
-- 提供 React + Vite 前端工作台，覆盖生成、任务、知识库、历史、门控和覆盖率评估入口。
+- 提供 React + Vite 前端工作台，覆盖生成、任务、测试计划、执行报告、知识库、历史、门控和覆盖率评估入口。
 - 支持其他项目通过 API 集成。
 
 ## 4. 项目目录说明
@@ -177,7 +177,7 @@ GET /api/v1/test-cases/generation-jobs/{job_id}
 - `succeeded`：生成完成，详情里包含 `response`。
 - `failed`：生成失败，详情里包含 `error`；如果是预算或质量门控失败，`error.gate` 会包含 human-in-the-loop 结构化信息。
 
-队列配置由 `GENERATION_JOB_QUEUE_BACKEND`、`GENERATION_JOB_MAX_QUEUE_SIZE`、`GENERATION_JOB_RETENTION_SECONDS`、`GENERATION_JOB_STALE_AFTER_SECONDS`、`REDIS_URL` 和 `RQ_QUEUE_NAME` 控制。默认 `in_memory` backend 适合本地开发；`rq` backend 使用 Redis/RQ 派发任务，并把任务状态写入当前 `DATABASE_BACKEND` 对应的数据库。worker 启动时会把超过 stale 阈值仍处于 `running` 的任务标记为失败。默认 SQLite 状态库适合单机部署；MySQL backend 已实现并通过本机 Docker smoke、备份恢复、Compose 模板、stale 恢复 smoke 和 5 任务稳定性 smoke，多实例生产还需要补队列可观测性、Redis/MySQL 短暂不可用演练和更长时长运行验证。
+队列配置由 `GENERATION_JOB_QUEUE_BACKEND`、`GENERATION_JOB_MAX_QUEUE_SIZE`、`GENERATION_JOB_RETENTION_SECONDS`、`GENERATION_JOB_STALE_AFTER_SECONDS`、`REDIS_URL` 和 `RQ_QUEUE_NAME` 控制。默认 `in_memory` backend 适合本地开发；`rq` backend 使用 Redis/RQ 派发任务，并把任务状态写入当前 `DATABASE_BACKEND` 对应的数据库。worker 启动时会把超过 stale 阈值仍处于 `running` 的任务标记为失败。默认 SQLite 状态库适合单机部署；MySQL backend 已实现并通过本机 Docker smoke、备份恢复、Compose 模板、stale 恢复 smoke、5 任务稳定性 smoke、Redis/MySQL 短暂不可用演练脚本、RQ worker stability smoke、queue alert 阈值检查和测试计划执行 job MySQL 持久化验证；多实例生产还需要补更长时长运行验证。测试计划执行链路还新增了 `scripts/check_test_plan_execution_queue.py` 和 `scripts/smoke_test_plan_execution_worker.py`，前者按 job function 过滤共享 RQ 队列中的测试计划执行任务，后者验证进程内 worker 连续处理多个执行 job 的稳定性。需求到报告的测试 Agent workflow job 也复用这套队列和数据库配置，用于把真实 LLM 计划生成从同步 HTTP 请求中移出。
 
 ### 5.3 导出 Excel
 
@@ -275,11 +275,14 @@ POST /api/v1/test-plans/execute
 POST /api/v1/test-plans/execution-jobs
 GET /api/v1/test-plans/execution-jobs
 GET /api/v1/test-plans/execution-jobs/{job_id}
+POST /api/v1/test-plans/reports/export
 ```
 
 `execute-step` 执行单个 `TestPlanStep` 并返回 `ToolRun`。`execute` 执行整份 `TestPlan` 并返回 `TestExecutionReport`。默认注册 HTTP adapter；`manual` 步骤会返回 `skipped`，未注册工具会返回 `blocked`。如果配置了 `TEST_TOOL_HTTP_BASE_URL_ALLOWLIST`，`http_base_url` 必须命中 allowlist。pytest adapter 默认关闭，只有设置 `TEST_TOOL_PYTEST_ENABLED=true` 后才会注册，并受 `TEST_TOOL_PYTEST_ALLOWED_PATHS` 限制。HTTP 响应摘要和 pytest stdout/stderr 会写入 `TEST_TOOL_ARTIFACT_DIR`，路径返回在 `ToolRun.artifact_paths`。单个 artifact 文件受 `TEST_TOOL_ARTIFACT_MAX_BYTES` 截断保护，过期 artifact 可通过 `scripts/cleanup_tool_artifacts.py` 按 `TEST_TOOL_ARTIFACT_RETENTION_SECONDS` 清理。
 
 `execution-jobs` 提供异步执行入口，提交请求后返回 `queued/running/succeeded/failed` 状态，可通过列表和详情接口查询执行报告。默认 `GENERATION_JOB_QUEUE_BACKEND=in_memory` 时使用 API 进程内 worker；设置 `GENERATION_JOB_QUEUE_BACKEND=rq` 后，测试计划执行 job 会写入 `GENERATION_HISTORY_DB_PATH` 指向的 SQLite store，并派发到 Redis/RQ，由 `scripts/run_generation_worker.py` 监听同一队列执行。服务或 worker 启动时会把超过 `GENERATION_JOB_STALE_AFTER_SECONDS` 仍处于 `running` 的测试计划执行任务标记为 failed。
+
+`reports/export` 接收结构化 `TestExecutionReport`，支持 `format=markdown` 或 `format=json`，返回可下载文件。Markdown 报告由 `ToolRun`、需求覆盖、缺陷和建议确定性渲染，不调用 LLM 重新总结；JSON 导出保留原始报告 schema，适合后续测评或归档。
 
 `http_base_url` 必须是明确的 HTTP/HTTPS base URL，步骤中的 HTTP path 只能是相对路径，不能传入完整外部 URL。
 
@@ -329,7 +332,35 @@ GET /api/v1/test-plans/execution-jobs/{job_id}
 }
 ```
 
-### 5.7 评估需求覆盖率
+### 5.7 测试 Agent workflow job
+
+```http
+POST /api/v1/test-agent/workflow-jobs
+GET /api/v1/test-agent/workflow-jobs
+GET /api/v1/test-agent/workflow-jobs/{job_id}
+```
+
+workflow job 从需求开始执行完整链路：生成 `TestPlan`，调用工具 adapter，汇总 `TestExecutionReport`。它适合 `use_llm=true` 的真实模型路径，因为提交接口会立即返回 202 和 job id，调用方轮询详情接口获取最终 `result.plan` 和 `result.report`。
+
+请求示例：
+
+```json
+{
+  "generation_request": {
+    "description": "订单退款接口需要支持创建退款、幂等冲突和无权限拒绝。",
+    "requirements": [],
+    "context": [],
+    "max_steps": 5,
+    "use_llm": true,
+    "allow_llm_fallback": false
+  },
+  "http_base_url": "http://127.0.0.1:8000"
+}
+```
+
+job 状态为 `queued/running/succeeded/failed`。成功时详情包含 `result.plan`、`result.report` 和 `result.timing`；失败时包含 `error.code`、`error.message`、`error.stage` 和失败前已记录的 `error.timing`。`job.timing` 会从 job 时间戳和结果中派生排队耗时、任务运行耗时、总耗时、计划生成耗时、工具执行耗时和报告汇总耗时。阶段失败码按失败位置区分，例如真实 LLM 计划生成超时会记录为 `plan_generation_timeout`。该接口复用现有 `GENERATION_JOB_QUEUE_BACKEND=in_memory|rq`、SQLite/MySQL store、Redis/RQ worker 和 stale running 恢复。`scripts/check_test_agent_workflow_queue.py` 可检查 workflow job 数据库状态与 RQ registry 是否一致；`scripts/smoke_test_agent_workflow_rq_mysql.py` 可在 Docker MySQL profile 中验证真实 API、Redis、MySQL、RQ worker、HTTP adapter、artifact、报告、耗时汇总、吞吐汇总和队列 alert 的完整链路；前端测试计划工作台已支持提交 workflow job、查看列表/详情、轮询活跃任务、展示耗时和 LLM 调用指标并回填结果。真实 LLM benchmark、重试/backoff 和 workflow 吞吐门禁已具备可选验证入口。
+
+### 5.8 评估需求覆盖率
 
 ```http
 POST /api/v1/evaluation/coverage
@@ -363,7 +394,7 @@ POST /api/v1/evaluation/coverage
 }
 ```
 
-### 5.8 沉淀覆盖缺口到知识库
+### 5.9 沉淀覆盖缺口到知识库
 
 ```http
 POST /api/v1/evaluation/coverage/gaps/knowledge
@@ -413,7 +444,7 @@ POST /api/v1/evaluation/coverage/gaps/knowledge
 
 返回会包含 `source`、`version`、`added_chunks`、`replaced_chunks` 和 `gap_count`。前端覆盖率页已提供“确认沉淀缺口”入口。
 
-### 5.9 导入知识库
+### 5.10 导入知识库
 
 ```http
 POST /api/v1/knowledge/ingest
@@ -435,7 +466,7 @@ POST /api/v1/knowledge/ingest
 
 作用是把 PRD、历史用例、测试规范等文本切分后写入 Chroma。
 
-### 5.10 查询知识库
+### 5.11 查询知识库
 
 ```http
 POST /api/v1/knowledge/query
@@ -452,7 +483,7 @@ POST /api/v1/knowledge/query
 }
 ```
 
-### 5.11 管理知识库文档
+### 5.12 管理知识库文档
 
 ```http
 GET /api/v1/knowledge/documents
@@ -462,7 +493,7 @@ DELETE /api/v1/knowledge/documents?source=knowledge/prd/login.md
 
 文档管理接口用于查看当前索引里的文档清单、按 `source` 更新单个文档、按 `source` 删除文档。upsert 会替换同 `source` 的旧 chunk，并把当前文档版本号加 1。
 
-### 5.12 查询和处理门控记录
+### 5.13 查询和处理门控记录
 
 ```http
 GET /api/v1/generation-gates?status=pending
@@ -485,6 +516,41 @@ POST /api/v1/generation-gates/{record_id}/resolve
 ```
 
 `decision` 只能是 `approved` 或 `rejected`。已经处理过的门控记录不会再次覆盖，重复处理会返回 409。
+
+### 5.14 查询内部运行指标
+
+```http
+GET /api/v1/operations/metrics
+GET /api/v1/operations/metrics/prometheus
+```
+
+运行指标接口受同一套 `X-API-Key` 保护，面向内部监控和受控运维使用，不建议公网直接暴露。
+
+`/operations/metrics` 返回 JSON，包含 readiness 状态、数据库 backend、生成任务、测试计划执行任务、测试 Agent workflow 任务的状态计数，生成历史成功/失败和 generation gate 状态计数，队列 backend/RQ registry/worker 计数，HTTP 请求量/状态码/耗时桶，LLM 配置状态、模型名、timeout 和 retry 配置，以及生成、测试计划执行、测试 Agent workflow 的业务阶段计数和耗时桶。
+
+`/operations/metrics/prometheus` 返回 Prometheus text exposition，当前包含：
+
+- `ai_testcase_ready`
+- `ai_testcase_llm_configured`
+- `ai_testcase_llm_timeout_seconds`
+- `ai_testcase_llm_max_retries`
+- `ai_testcase_llm_call_total`
+- `ai_testcase_llm_attempt_total`
+- `ai_testcase_llm_retry_total`
+- `ai_testcase_llm_call_duration_seconds`
+- `ai_testcase_stage_total`
+- `ai_testcase_stage_duration_seconds`
+- `ai_testcase_job_count`
+- `ai_testcase_job_active_count`
+- `ai_testcase_generation_record_count`
+- `ai_testcase_generation_gate_count`
+- `ai_testcase_generation_usage_tokens`
+- `ai_testcase_generation_estimated_cost`
+- `ai_testcase_rq_registry_jobs`
+- `ai_testcase_rq_worker_count`
+- `ai_testcase_readiness_check_status`
+- `ai_testcase_http_requests_total`
+- `ai_testcase_http_request_duration_seconds`
 
 ## 6. 测试用例数据结构
 
@@ -630,6 +696,7 @@ EMBEDDING_DEVICE
 EMBEDDING_LOCAL_FILES_ONLY
 LLM_MAX_RETRIES
 LLM_TIMEOUT_SECONDS
+LLM_RETRY_BACKOFF_SECONDS
 LLM_PROMPT_PRICE_PER_1K_TOKENS
 LLM_COMPLETION_PRICE_PER_1K_TOKENS
 LLM_COST_CURRENCY
@@ -654,11 +721,13 @@ RQ_FAILURE_TTL_SECONDS
 GENERATION_JOB_STALE_AFTER_SECONDS
 TEST_TOOL_PYTEST_ENABLED
 TEST_TOOL_HTTP_BASE_URL_ALLOWLIST
+TEST_TOOL_HTTP_ALLOWED_HEADERS
 TEST_TOOL_ARTIFACT_DIR
 TEST_TOOL_ARTIFACT_MAX_BYTES
 TEST_TOOL_ARTIFACT_RETENTION_SECONDS
 TEST_TOOL_PYTEST_ALLOWED_PATHS
 TEST_TOOL_PYTEST_TIMEOUT_SECONDS
+TEST_TOOL_PYTEST_ENV_ALLOWLIST
 RATE_LIMIT_ENABLED
 RATE_LIMIT_REQUESTS
 RATE_LIMIT_WINDOW_SECONDS
@@ -674,7 +743,7 @@ CORS_ALLOW_CREDENTIALS
 
 项目也兼容读取当前已有的 `.env/config.py`。
 
-注意：`.env/config.py` 里如果有真实 API Key 或服务调用密钥，不要提交到版本库。除 `/health` 外，业务接口需要在请求头携带 `X-API-Key`。服务接受 `APP_API_KEY` 单 key，也接受逗号分隔的 `APP_API_KEYS` 多 key；多 key 适合滚动轮换服务调用密钥。服务会为响应增加 `X-Request-ID` 和 `X-Process-Time-ms`，并默认对 `/api/v1/*` 做内存级限流。请求日志默认是文本格式，也可以设置 `REQUEST_LOG_FORMAT=json` 便于容器和集中日志系统采集。生成接口默认把生成请求、响应、失败原因和耗时写入 `DATABASE_BACKEND=sqlite`、`GENERATION_HISTORY_DB_PATH` 指向的 SQLite 数据库；`DATABASE_BACKEND=mysql` 代码路径已实现并通过本机 Docker MySQL smoke，依赖已纳入统一 `requirements.txt`，启用前需要初始化 schema。异步生成可使用进程内 worker 或 Redis/RQ 外部队列；直接在 WSL/本机 Python 运行时可用 `REDIS_URL=redis://127.0.0.1:6379/0`，Docker Compose 内部使用 `REDIS_URL=redis://redis:6379/0`。测试计划执行接口默认启用 HTTP adapter，可通过 `TEST_TOOL_HTTP_BASE_URL_ALLOWLIST` 收紧允许访问的目标服务；工具执行证据写入 `TEST_TOOL_ARTIFACT_DIR`，并受 `TEST_TOOL_ARTIFACT_MAX_BYTES` 限制；`TEST_TOOL_ARTIFACT_RETENTION_SECONDS` 控制 `scripts/cleanup_tool_artifacts.py` 的过期清理窗口；pytest adapter 需要显式设置 `TEST_TOOL_PYTEST_ENABLED=true`，并受 `TEST_TOOL_PYTEST_ALLOWED_PATHS` 和 `TEST_TOOL_PYTEST_TIMEOUT_SECONDS` 控制。`AGENT_WORKFLOW_BACKEND` 默认使用 `langgraph`；`local` backend 保留为 fallback 和行为对照。Reviewer 默认开启并写入 `metadata.review`；自动重试默认关闭，避免隐式增加 LLM 成本。
+注意：`.env/config.py` 里如果有真实 API Key 或服务调用密钥，不要提交到版本库。除 `/health` 外，业务接口需要在请求头携带 `X-API-Key`。服务接受 `APP_API_KEY` 单 key，也接受逗号分隔的 `APP_API_KEYS` 多 key；多 key 适合滚动轮换服务调用密钥。服务会为响应增加 `X-Request-ID` 和 `X-Process-Time-ms`，并默认对 `/api/v1/*` 做内存级限流。请求日志默认是文本格式，也可以设置 `REQUEST_LOG_FORMAT=json` 便于容器和集中日志系统采集。生成接口默认把生成请求、响应、失败原因和耗时写入 `DATABASE_BACKEND=sqlite`、`GENERATION_HISTORY_DB_PATH` 指向的 SQLite 数据库；`DATABASE_BACKEND=mysql` 代码路径已实现并通过本机 Docker MySQL smoke，依赖已纳入统一 `requirements.txt`，启用前需要初始化 schema。异步生成可使用进程内 worker 或 Redis/RQ 外部队列；直接在 WSL/本机 Python 运行时可用 `REDIS_URL=redis://127.0.0.1:6379/0`，Docker Compose 内部使用 `REDIS_URL=redis://redis:6379/0`。测试计划执行接口默认启用 HTTP adapter，可通过 `TEST_TOOL_HTTP_BASE_URL_ALLOWLIST` 收紧允许访问的目标服务，并通过 `TEST_TOOL_HTTP_ALLOWED_HEADERS` 限制可转发 header；工具执行证据写入 `TEST_TOOL_ARTIFACT_DIR`，并受 `TEST_TOOL_ARTIFACT_MAX_BYTES` 限制；`TEST_TOOL_ARTIFACT_RETENTION_SECONDS` 控制 `scripts/cleanup_tool_artifacts.py` 的过期清理窗口；artifact 下载接口只允许读取 artifact 根目录内文件。pytest adapter 需要显式设置 `TEST_TOOL_PYTEST_ENABLED=true`，并受 `TEST_TOOL_PYTEST_ALLOWED_PATHS`、`TEST_TOOL_PYTEST_TIMEOUT_SECONDS` 和 `TEST_TOOL_PYTEST_ENV_ALLOWLIST` 控制。`AGENT_WORKFLOW_BACKEND` 默认使用 `langgraph`；`local` backend 保留为 fallback 和行为对照。Reviewer 默认开启并写入 `metadata.review`；自动重试默认关闭，避免隐式增加 LLM 成本。
 
 生产环境应设置 `APP_ENV=production`。此时应用会在启动时强制校验关键配置，包括真实服务密钥、真实模型密钥、HTTPS CORS 来源、语义 embedding、限流、请求日志、Agent Reviewer 和持久化历史库路径；校验失败会拒绝启动。
 
@@ -774,7 +843,7 @@ POST /api/v1/knowledge/ingest
 - 替换更强的 embedding 模型，提高 RAG 召回质量。
 - 增加文件上传接口，支持上传 PRD、Word、PDF。
 - 增加测试管理平台 adapter，例如禅道、TestRail、飞书多维表格。
-- 补齐 MySQL 生产化：Compose 服务模板、备份恢复、连接池参数、稳定性验证和默认 backend 切换评估。
+- 补齐 MySQL 生产化：连接池参数、长时间稳定性验证、高并发验证和默认 backend 切换评估。
 - 增强 Redis/RQ 队列治理，例如原子背压、队列指标、失败率统计和 worker 运行时长监控。
 - 增强用例质量评分，例如覆盖率、风险等级和人工验收结果回流。
 - 增强覆盖率评估，例如同义词、权重、语义相似度和人工确认结果回流。

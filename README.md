@@ -14,6 +14,7 @@ AI 测试用例生成助手是一个面向测试工程场景的 RAG Workflow Age
 - [部署说明](docs/deployment.md)
 - [发布检查](docs/release-checklist.md)
 - [优化计划](docs/optimization-plan.md)
+- [监控和告警](docs/monitoring.md)
 - [RAG 评估](docs/rag-evaluation.md)
 - [MySQL 运维](docs/mysql-operations.md)
 - [前端工作台](frontend/README.md)
@@ -69,6 +70,8 @@ http://127.0.0.1:5173
 - `POST /api/v1/knowledge/ingest`：导入知识库文档。
 - `GET /api/v1/generation-records`：查询生成历史。
 - `GET /api/v1/generation-gates`：查询待处理门控记录。
+- `GET /api/v1/operations/metrics`：查询内部运行指标 JSON。
+- `GET /api/v1/operations/metrics/prometheus`：查询 Prometheus 文本指标。
 
 完整接口、请求示例、配置项和工作流说明见 [项目详细说明](docs/project-guide.md)。
 

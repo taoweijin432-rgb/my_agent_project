@@ -2,11 +2,13 @@
 
 这份文档记录当前已验证通过的 Linux 本机运行方式：Redis 运行在 Docker，API 和 RQ worker 运行在本机 Python 虚拟环境。默认任务状态和生成历史写入本机 SQLite；也可以切换到 Docker MySQL，当前 MySQL backend 已完成本机 smoke。
 
+默认 `docker-compose.yml` 不再把 Redis/MySQL 暴露到宿主机，只在 Compose 容器网络内使用服务名连接。本机 Python 直连 Redis/MySQL 时，需要使用已有的本机服务，或单独启动带端口映射的开发容器。
+
 ## 1. 前提
 
 - Docker 已启动。
-- Redis 容器已运行并暴露到本机 `6379`。
-- 如果要验证 MySQL backend，MySQL 容器需运行并暴露到本机 `3306`。
+- 本机 Python 直连 Redis 时，Redis 需要暴露到本机 `6379`。
+- 如果要用本机 Python 验证 MySQL backend，MySQL 需要暴露到本机 `3306`。
 - Python 虚拟环境 `.venv` 已安装项目依赖。
 - 当前目录为项目根目录。
 
@@ -20,6 +22,20 @@ docker ps --format '{{.Names}} {{.Image}} {{.Ports}} {{.Status}}'
 
 ```bash
 docker run -d --name agent-redis -p 6379:6379 redis:latest
+```
+
+如果需要本机 Python 直连 MySQL，可以单独启动一个开发用 MySQL，并在首次初始化时挂载迁移脚本：
+
+```bash
+docker run -d --name agent-mysql -p 3306:3306 \
+  -e MYSQL_ROOT_PASSWORD=replace-with-strong-root-password \
+  -e MYSQL_DATABASE=agent \
+  -e MYSQL_USER=agent_user \
+  -e MYSQL_PASSWORD=your_agent_password \
+  -v "$PWD/migrations/mysql/001_initial.sql:/docker-entrypoint-initdb.d/001_initial.sql:ro" \
+  mysql:8.0 \
+  --character-set-server=utf8mb4 \
+  --collation-server=utf8mb4_unicode_ci
 ```
 
 确认 Python 依赖：
@@ -75,7 +91,7 @@ DATABASE_BACKEND=mysql
 DATABASE_URL=mysql://agent_user:your_agent_password@127.0.0.1:3306/agent?charset=utf8mb4
 ```
 
-本机 Python 连接 Docker MySQL 时 host 使用 `127.0.0.1`；Docker Compose 容器内部连接 MySQL 时 host 应使用服务名 `mysql`。MySQL schema 可通过以下命令初始化：
+本机 Python 连接已发布宿主端口的 MySQL 时 host 使用 `127.0.0.1`；Docker Compose 容器内部连接 MySQL 时 host 应使用服务名 `mysql`。MySQL schema 可通过以下命令初始化；重复执行时会跳过已存在的索引/表结构：
 
 ```bash
 DATABASE_URL='mysql://agent_user:your_agent_password@127.0.0.1:3306/agent?charset=utf8mb4' \
@@ -161,6 +177,12 @@ error.code=budget_exceeded
 ./.venv/bin/python scripts/check_generation_queue.py
 ```
 
+测试计划执行任务使用独立检查脚本，会按 job function 过滤共享 RQ 队列：
+
+```bash
+./.venv/bin/python scripts/check_test_plan_execution_queue.py
+```
+
 本机 Python 直连 Docker Redis/RQ 时：
 
 ```bash
@@ -201,13 +223,13 @@ docker stop agent-redis
 
 ## 8. 当前结论
 
-本机开发/演示运行方式已经验证通过。Docker Compose 轻量 Redis/RQ smoke、MySQL store smoke 和 Redis/RQ + MySQL worker smoke 已验证通过；完整 ML/RAG 镜像构建仍受 `chromadb`、`numpy`、`onnxruntime` 等依赖下载影响，应在网络稳定环境单独验证。
+本机开发/演示运行方式已经验证通过。Docker Compose 轻量 Redis/RQ smoke、MySQL store smoke 和 Redis/RQ + MySQL worker smoke 已验证通过；Redis/MySQL 默认没有宿主端口映射，Compose 内部通过 `redis:6379` 和 `mysql:3306` 访问。完整 ML/RAG 镜像构建仍受 `chromadb`、`numpy`、`onnxruntime` 等依赖下载影响，应在网络稳定环境单独验证。
 
 smoke 验证复用统一 `docker-compose.yml`，通过环境变量把运行数据切到 Docker named volume；依赖仍统一来自 `requirements.txt`。
 
 ```bash
 IMAGE_TAG=smoke APP_DATA_MOUNT=smoke-data MODEL_CACHE_MOUNT=smoke-model-cache docker compose build
-REDIS_HOST_PORT=6380 IMAGE_TAG=smoke APP_DATA_MOUNT=smoke-data MODEL_CACHE_MOUNT=smoke-model-cache docker compose up -d
+IMAGE_TAG=smoke APP_DATA_MOUNT=smoke-data MODEL_CACHE_MOUNT=smoke-model-cache docker compose up -d
 ```
 
 当前已验证的 smoke 预期结果：异步任务最终 `status=failed` 且 `error.code=budget_exceeded`，RQ 队列长度为 `0`，当前数据库 backend 中有对应 `generation_jobs` 和 `generation_records` 记录。`scripts/check_generation_queue.py` 可用于查看队列 registry、worker 心跳和业务表状态统计。默认 backend 仍是 SQLite；切到 MySQL 前需要先安装可选依赖并初始化 schema。

@@ -33,6 +33,9 @@ cp .env.example .env.runtime
 ```env
 DATABASE_BACKEND=mysql
 DATABASE_URL=mysql://agent_user:your_agent_password@mysql:3306/agent?charset=utf8mb4
+MYSQL_CONNECT_TIMEOUT_SECONDS=10
+MYSQL_READ_TIMEOUT_SECONDS=30
+MYSQL_WRITE_TIMEOUT_SECONDS=30
 MYSQL_ROOT_PASSWORD=replace-with-strong-root-password
 MYSQL_DATABASE=agent
 MYSQL_USER=agent_user
@@ -91,11 +94,34 @@ Compose 容器内部运行时配置：
 ```env
 DATABASE_BACKEND=mysql
 DATABASE_URL=mysql://agent_user:your_agent_password@mysql:3306/agent?charset=utf8mb4
+MYSQL_CONNECT_TIMEOUT_SECONDS=10
+MYSQL_READ_TIMEOUT_SECONDS=30
+MYSQL_WRITE_TIMEOUT_SECONDS=30
 ```
 
 阶段评估：正常。最常见错误是把本机 `127.0.0.1` 和容器内部 `mysql` 服务名混用。
 
-## 4. 备份
+## 4. 连接超时和运行边界
+
+MySQL backend 使用 `PyMySQL` 连接业务库。默认连接、读、写超时分别是：
+
+```env
+MYSQL_CONNECT_TIMEOUT_SECONDS=10
+MYSQL_READ_TIMEOUT_SECONDS=30
+MYSQL_WRITE_TIMEOUT_SECONDS=30
+```
+
+也可以在 `DATABASE_URL` 查询参数中覆盖连接参数：
+
+```env
+DATABASE_URL=mysql://agent_user:your_agent_password@mysql:3306/agent?charset=utf8mb4&connect_timeout=10&read_timeout=30&write_timeout=30
+```
+
+当前实现是每次 store 操作新建连接，并在操作结束后关闭连接；还没有引入长连接池。这个策略适合小型受控部署和当前 smoke 验证规模，可以避免空闲连接长期悬挂。高并发或长时生产运行前，仍应做容量评估，再决定是否引入连接池、连接数上限，以及数据库侧 `wait_timeout`、`max_connections` 调整。
+
+阶段评估：正常但未完成生产容量治理。现阶段已避免 MySQL 不可达时请求长期挂起；是否需要连接池应以后续并发压测数据决定。
+
+## 5. 备份
 
 创建本机备份目录：
 
@@ -135,7 +161,7 @@ head -n 20 backups/mysql/<backup-file>.sql
 
 阶段评估：正常。`mysqldump --single-transaction --no-tablespaces` 适合当前 InnoDB 表，能降低备份期间对写入的影响，并避免普通业务用户缺少 `PROCESS` 权限的问题。
 
-## 5. 恢复到现有 Compose MySQL
+## 6. 恢复到现有 Compose MySQL
 
 恢复前先确认目标数据库和备份文件：
 
@@ -167,7 +193,7 @@ docker compose --profile mysql exec mysql \
 
 阶段评估：有风险但可控。恢复操作会改变数据库状态，正式执行前必须先确认备份文件和目标环境。
 
-## 6. 恢复演练到新 volume
+## 7. 恢复演练到新 volume
 
 推荐用独立 Compose project name 做恢复演练，避免影响当前运行环境：
 
@@ -204,7 +230,7 @@ COMPOSE_PROJECT_NAME=agent_restore_test \
 
 阶段评估：正常。恢复演练应先在新 volume 做，确认备份可用后再考虑恢复到正式环境。
 
-## 7. 已验证恢复演练
+## 8. 已验证恢复演练
 
 2026-06-24 已完成一次恢复演练：
 
@@ -218,7 +244,7 @@ COMPOSE_PROJECT_NAME=agent_restore_test \
 
 演练过程中第一次使用普通业务用户执行 `mysqldump` 时遇到缺少 `PROCESS` 权限，已通过追加 `--no-tablespaces` 解决。演练结束后已停止并移除源库和恢复库临时容器及网络，没有执行 `-v`，两个 volume 均保留。
 
-## 8. 运行检查
+## 9. 运行检查
 
 检查 API：
 
@@ -248,17 +274,17 @@ docker compose --profile mysql exec api \
 
 阶段评估：正常。只要 API/worker 的 `DATABASE_BACKEND` 是 `mysql`，且 MySQL 表中有新任务或历史记录，就说明应用链路已切到 MySQL。
 
-## 9. 常见问题
+## 10. 常见问题
 
-### 8.1 修改密码后仍无法登录
+### 10.1 修改密码后仍无法登录
 
 原因通常是 MySQL volume 已存在。`MYSQL_ROOT_PASSWORD`、`MYSQL_USER`、`MYSQL_PASSWORD` 只在首次初始化空 volume 时生效。已有数据需要用 MySQL 内部 SQL 修改用户密码，或在确认不要旧数据后换一个新的 volume。
 
-### 8.2 本机能连，容器内连不上
+### 10.2 本机能连，容器内连不上
 
 本机 Python 使用 `127.0.0.1:3306`。Compose 容器内部使用 `mysql:3306`。容器内不要使用 `127.0.0.1` 连接 MySQL，否则会连到 API/worker 容器自己。
 
-### 8.3 API 启动时报缺少 PyMySQL
+### 10.3 API 启动时报缺少 PyMySQL
 
 MySQL backend 需要 `PyMySQL`。本机虚拟环境执行：
 
@@ -268,11 +294,11 @@ uv pip install --python ./.venv/bin/python -r requirements.txt
 
 Compose 使用统一 `docker-compose.yml` 的 `mysql` profile，`PyMySQL` 已在 `requirements.txt` 中声明。
 
-### 8.4 初始化脚本没有执行
+### 10.4 初始化脚本没有执行
 
 MySQL 官方镜像只在数据目录为空时执行 `/docker-entrypoint-initdb.d/`。如果 `mysql-data` volume 已存在，初始化脚本不会再次执行。可以用 `scripts/init_mysql.py` 显式初始化 schema，或新建演练 volume 验证初始化流程。
 
-## 10. 下一步
+## 11. 下一步
 
 MySQL 初始化、备份、恢复文档、一次恢复演练、完整 Compose API/worker 镜像 smoke 和 5 任务稳定性 smoke 已完成。
 
