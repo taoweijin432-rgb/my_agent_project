@@ -1,0 +1,43 @@
+# Example Alertmanager routing fragment for the AI testcase generator.
+# Replace receiver URLs with the team's internal notification endpoints.
+route:
+  receiver: ai-testcase-generator-default
+  group_by:
+    - alertname
+    - service
+    - environment
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - receiver: ai-testcase-generator-critical
+      matchers:
+        - severity="critical"
+      repeat_interval: 1h
+    - receiver: ai-testcase-generator-warning
+      matchers:
+        - severity="warning"
+      repeat_interval: 4h
+
+receivers:
+  - name: ai-testcase-generator-default
+    webhook_configs:
+      - url: http://alert-webhook.example.internal/ai-testcase-generator/default
+        send_resolved: true
+  - name: ai-testcase-generator-critical
+    webhook_configs:
+      - url: http://alert-webhook.example.internal/ai-testcase-generator/critical
+        send_resolved: true
+  - name: ai-testcase-generator-warning
+    webhook_configs:
+      - url: http://alert-webhook.example.internal/ai-testcase-generator/warning
+        send_resolved: true
+
+inhibit_rules:
+  - source_matchers:
+      - alertname="AITestcaseServiceNotReady"
+    target_matchers:
+      - severity="warning"
+    equal:
+      - service
+      - environment

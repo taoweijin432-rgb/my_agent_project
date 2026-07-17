@@ -1,0 +1,31 @@
+# Example Prometheus configuration fragment for a controlled internal deployment.
+# Prometheus scrapes an internal metrics proxy. The proxy injects X-API-Key and
+# forwards requests to /api/v1/operations/metrics/prometheus on the API service.
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+external_labels:
+  service: ai-testcase-generator
+  environment: staging
+
+rule_files:
+  - prometheus-alert-rules.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+scrape_configs:
+  - job_name: ai-testcase-generator
+    metrics_path: /metrics
+    scheme: http
+    scrape_interval: 30s
+    static_configs:
+      - targets:
+          - ai-testcase-metrics-proxy:9100
+        labels:
+          service: ai-testcase-generator
+          environment: staging

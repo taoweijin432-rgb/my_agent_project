@@ -10,6 +10,7 @@ from app.services.generator import (
     TestCaseGenerator,
 )
 from app.services.llm import LLMError, MissingApiKeyError
+from app.services.stage_metrics import record_stage_duration
 from app.services.stores import GenerationHistoryRepository
 
 
@@ -46,6 +47,13 @@ def execute_generation(
         raise
 
     duration_ms = (time.perf_counter() - start) * 1000
+    record_stage_duration(
+        workflow="generation",
+        stage="total",
+        status="succeeded",
+        duration_ms=duration_ms,
+    )
+    _record_generation_workflow_steps(response)
     record_id = _record_generation_success(
         request,
         response,
@@ -89,6 +97,12 @@ def _record_generation_failure(
 ) -> str | None:
     try:
         duration_ms = (time.perf_counter() - start) * 1000
+        record_stage_duration(
+            workflow="generation",
+            stage="total",
+            status="failed",
+            duration_ms=duration_ms,
+        )
         return history_store_factory().record_failure(
             request,
             str(exc),
@@ -100,3 +114,13 @@ def _record_generation_failure(
     except Exception:
         logger.exception("failed to persist generation failure record")
         return None
+
+
+def _record_generation_workflow_steps(response: GenerateResponse) -> None:
+    for step in response.metadata.workflow_steps:
+        record_stage_duration(
+            workflow="generation",
+            stage=step.name,
+            status=step.status,
+            duration_ms=step.duration_ms,
+        )

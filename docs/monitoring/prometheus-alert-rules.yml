@@ -1,0 +1,155 @@
+groups:
+  - name: ai-testcase-generator.rules
+    rules:
+      - alert: AITestcaseServiceNotReady
+        expr: ai_testcase_ready == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "AI testcase generator readiness is failing"
+          description: "The service readiness metric has been 0 for more than 2 minutes."
+
+      - alert: AITestcaseReadinessCheckError
+        expr: ai_testcase_readiness_check_status == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "AI testcase generator readiness check failed"
+          description: "Readiness check {{ $labels.name }} is reporting error status."
+
+      - alert: AITestcaseReadinessCheckWarning
+        expr: ai_testcase_readiness_check_status == 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AI testcase generator readiness check warning"
+          description: "Readiness check {{ $labels.name }} is reporting warning status."
+
+      - alert: AITestcaseLLMNotConfigured
+        expr: ai_testcase_llm_configured == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AI testcase generator LLM key is not configured"
+          description: "ZHIPU_API_KEY is missing; generation calls will fail until it is configured."
+
+      - alert: AITestcaseLLMCallFailuresObserved
+        expr: increase(ai_testcase_llm_call_total{status="failed"}[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AI testcase generator LLM call failures observed"
+          description: "LLM calls have failed in the last 15 minutes; check model {{ $labels.model }} and error code {{ $labels.error_code }}."
+
+      - alert: AITestcaseLLMRetriesObserved
+        expr: increase(ai_testcase_llm_retry_total[15m]) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AI testcase generator LLM retries observed"
+          description: "LLM retries increased in the last 15 minutes; check model {{ $labels.model }} and error code {{ $labels.error_code }}."
+
+      - alert: AITestcaseStageFailuresObserved
+        expr: increase(ai_testcase_stage_total{status=~"failed|blocked"}[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AI testcase generator workflow stage failures observed"
+          description: "Workflow {{ $labels.workflow }} stage {{ $labels.stage }} recorded failed or blocked executions in the last 15 minutes."
+
+      - alert: AITestcaseStageP95LatencyHigh
+        expr: histogram_quantile(0.95, sum by (le, workflow, stage) (rate(ai_testcase_stage_duration_seconds_bucket[15m]))) > 60
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AI testcase generator workflow stage latency is high"
+          description: "Workflow {{ $labels.workflow }} stage {{ $labels.stage }} p95 latency is above 60 seconds over 15 minutes."
+
+      - alert: AITestcaseQueuedJobsBacklog
+        expr: ai_testcase_job_count{status="queued"} > 20
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AI testcase generator queued job backlog"
+          description: "Queue {{ $labels.queue }} has more than 20 queued jobs for 10 minutes."
+
+      - alert: AITestcaseActiveJobsStuck
+        expr: ai_testcase_job_active_count > 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AI testcase generator active jobs may be stuck"
+          description: "Queue {{ $labels.queue }} has active jobs for more than 30 minutes."
+
+      - alert: AITestcaseGenerationFailuresObserved
+        expr: increase(ai_testcase_generation_record_count{status="failed"}[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AI testcase generator generation failures observed"
+          description: "Generation history recorded failed generation calls in the last 15 minutes."
+
+      - alert: AITestcaseGenerationGatePending
+        expr: ai_testcase_generation_gate_count{status="pending"} > 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AI testcase generator has pending generation gates"
+          description: "Generation gates have been pending for more than 30 minutes and need human review."
+
+      - alert: AITestcaseGenerationUsageTokensHigh
+        expr: ai_testcase_generation_usage_tokens{token_type="total_tokens_estimate"} > 1000000
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AI testcase generator token usage is high"
+          description: "Generation history token usage for status {{ $labels.status }} is above the configured baseline."
+
+      - alert: AITestcaseGenerationEstimatedCostHigh
+        expr: ai_testcase_generation_estimated_cost > 100
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AI testcase generator estimated cost is high"
+          description: "Generation history estimated cost for status {{ $labels.status }} and currency {{ $labels.currency }} is above the configured baseline."
+
+      - alert: AITestcaseRQFailedRegistryNotEmpty
+        expr: ai_testcase_rq_registry_jobs{registry="failed"} > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "AI testcase generator RQ failed registry is not empty"
+          description: "The Redis/RQ failed registry contains failed jobs."
+
+      - alert: AITestcaseRQNoWorkerForActiveJobs
+        expr: ai_testcase_rq_worker_count == 0 and sum(ai_testcase_rq_registry_jobs{registry=~"queued|started|deferred|scheduled"}) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "AI testcase generator has active RQ jobs but no worker"
+          description: "Redis/RQ has active jobs but no worker is currently registered."
+
+      - alert: AITestcaseHTTP5xxRateHigh
+        expr: sum(rate(ai_testcase_http_requests_total{status_class="5xx"}[5m])) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AI testcase generator HTTP 5xx rate is high"
+          description: "The service is returning more than 0.05 HTTP 5xx responses per second over 5 minutes."

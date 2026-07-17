@@ -6,12 +6,15 @@ from fastapi import FastAPI
 
 from app.core.config import get_settings
 from app.core.middleware import add_request_middleware
+from app.services.http_metrics import get_http_metrics_snapshot, reset_http_metrics
 
 
 @pytest.fixture(autouse=True)
 def clear_settings_caches() -> None:
     get_settings.cache_clear()
+    reset_http_metrics()
     yield
+    reset_http_metrics()
     get_settings.cache_clear()
 
 
@@ -77,6 +80,15 @@ def test_api_rate_limit_returns_429_after_configured_limit(monkeypatch) -> None:
     assert limited.headers["retry-after"] == "60"
     assert limited.headers["x-request-id"]
     assert float(limited.headers["x-process-time-ms"]) >= 0
+    metrics = get_http_metrics_snapshot()
+    assert metrics["total_count"] == 3
+    assert [
+        (item["method"], item["route"], item["status_code"], item["count"])
+        for item in metrics["requests"]
+    ] == [
+        ("POST", "/api/v1/ping", 200, 2),
+        ("POST", "/api/v1/ping", 429, 1),
+    ]
 
 
 def test_health_endpoint_is_not_rate_limited(monkeypatch) -> None:
@@ -99,3 +111,5 @@ def test_request_id_header_is_preserved(monkeypatch) -> None:
     assert response.status_code == 200
     assert response.headers["x-request-id"] == "req-test-001"
     assert float(response.headers["x-process-time-ms"]) >= 0
+    metrics = get_http_metrics_snapshot()
+    assert metrics["requests"][0]["route"] == "/health"

@@ -5,13 +5,14 @@ import threading
 import time
 from collections import deque
 from math import ceil
-from typing import Deque
+from typing import Awaitable, Callable, Deque
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
 from starlette.responses import JSONResponse, Response
 
 from app.core.config import Settings
+from app.services.http_metrics import record_http_request
 
 
 logger = logging.getLogger("app.requests")
@@ -45,11 +46,15 @@ def add_request_middleware(app: FastAPI, settings: Settings) -> None:
     )
 
     @app.middleware("http")
-    async def request_context(request: Request, call_next) -> Response:
+    async def request_context(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
         request_id = _request_id(request)
         request.state.request_id = request_id
         start = time.perf_counter()
         status_code = 500
+        response: Response
 
         try:
             if _should_rate_limit(request, settings):
@@ -66,12 +71,25 @@ def add_request_middleware(app: FastAPI, settings: Settings) -> None:
                 response = await call_next(request)
             status_code = response.status_code
         except Exception:
+            record_http_request(
+                method=request.method,
+                route=_request_route(request),
+                status_code=status_code,
+                duration_seconds=time.perf_counter() - start,
+            )
             _log_request(request, request_id, status_code, start, settings=settings, failed=True)
             raise
 
-        duration_ms = (time.perf_counter() - start) * 1000
+        duration_seconds = time.perf_counter() - start
+        duration_ms = duration_seconds * 1000
         response.headers["X-Request-ID"] = request_id
         response.headers["X-Process-Time-ms"] = f"{duration_ms:.2f}"
+        record_http_request(
+            method=request.method,
+            route=_request_route(request),
+            status_code=status_code,
+            duration_seconds=duration_seconds,
+        )
         if settings.request_log_enabled:
             _log_request(request, request_id, status_code, start, settings=settings)
         return response
@@ -99,6 +117,14 @@ def _request_id(request: Request) -> str:
     if incoming and len(incoming) <= 128:
         return incoming
     return uuid4().hex
+
+
+def _request_route(request: Request) -> str:
+    route = request.scope.get("route")
+    path = getattr(route, "path", None)
+    if isinstance(path, str) and path:
+        return path
+    return request.url.path or "unknown"
 
 
 def _log_request(
