@@ -2,8 +2,6 @@ services:
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
-    ports:
-      - "127.0.0.1:${REDIS_HOST_PORT:-6379}:6379"
     volumes:
       - redis-data:/data
     restart: unless-stopped
@@ -83,8 +81,6 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-agent}
       MYSQL_USER: ${MYSQL_USER:-agent_user}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-your_agent_password}
-    ports:
-      - "127.0.0.1:${MYSQL_HOST_PORT:-3306}:3306"
     volumes:
       - mysql-data:/var/lib/mysql
       - ./migrations/mysql/001_initial.sql:/docker-entrypoint-initdb.d/001_initial.sql:ro

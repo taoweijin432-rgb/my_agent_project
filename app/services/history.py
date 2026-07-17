@@ -3,6 +3,7 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal, cast
 from uuid import uuid4
 
 from app.core.config import PROJECT_ROOT, Settings
@@ -16,6 +17,14 @@ from app.models.test_case import (
     GenerationUsage,
 )
 from app.services.quality import score_generation_quality
+
+
+GateResolutionStatus = Literal["pending", "approved", "rejected"]
+USAGE_TOKEN_FIELDS = (
+    "prompt_tokens_estimate",
+    "completion_tokens_estimate",
+    "total_tokens_estimate",
+)
 
 
 class GenerationGateAlreadyResolvedError(RuntimeError):
@@ -199,6 +208,67 @@ class GenerationHistoryStore:
                 params,
             ).fetchall()
         return [_summary_from_row(row) for row in rows]
+
+    def count_records_by_status(self) -> dict[str, int]:
+        if not self.enabled:
+            return {}
+
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT status, COUNT(*) AS count
+                FROM generation_records
+                GROUP BY status
+                """
+            ).fetchall()
+        return {str(row["status"]): int(row["count"]) for row in rows}
+
+    def count_gate_records_by_status(self) -> dict[str, int]:
+        if not self.enabled:
+            return {}
+
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT COALESCE(gate_status, 'pending') AS status, COUNT(*) AS count
+                FROM generation_records
+                WHERE gate_detail_json IS NOT NULL
+                GROUP BY COALESCE(gate_status, 'pending')
+                """
+            ).fetchall()
+        return {str(row["status"]): int(row["count"]) for row in rows}
+
+    def summarize_usage(self) -> dict[str, object]:
+        if not self.enabled:
+            return _empty_usage_summary()
+
+        with self._connect() as connection:
+            token_rows = connection.execute(
+                """
+                SELECT status,
+                       SUM(COALESCE(json_extract(usage_json, '$.prompt_tokens_estimate'), 0))
+                           AS prompt_tokens_estimate,
+                       SUM(COALESCE(json_extract(usage_json, '$.completion_tokens_estimate'), 0))
+                           AS completion_tokens_estimate,
+                       SUM(COALESCE(json_extract(usage_json, '$.total_tokens_estimate'), 0))
+                           AS total_tokens_estimate
+                FROM generation_records
+                GROUP BY status
+                """
+            ).fetchall()
+            cost_rows = connection.execute(
+                """
+                SELECT status,
+                       COALESCE(NULLIF(json_extract(usage_json, '$.currency'), ''), 'unknown')
+                           AS currency,
+                       SUM(COALESCE(json_extract(usage_json, '$.estimated_cost'), 0))
+                           AS estimated_cost
+                FROM generation_records
+                WHERE json_extract(usage_json, '$.estimated_cost') IS NOT NULL
+                GROUP BY status, COALESCE(NULLIF(json_extract(usage_json, '$.currency'), ''), 'unknown')
+                """
+            ).fetchall()
+        return _usage_summary_from_rows(token_rows, cost_rows)
 
     def get_record(self, record_id: str) -> GenerationRecordDetail | None:
         if not self.enabled:
@@ -438,10 +508,10 @@ def _gate_resolution_from_row(row: sqlite3.Row) -> GenerationGateResolution | No
     if _row_value(row, "gate_detail_json") is None:
         return None
     return GenerationGateResolution(
-        status=_row_value(row, "gate_status") or "pending",
-        resolved_at=_row_value(row, "gate_resolved_at"),
-        resolved_by=_row_value(row, "gate_resolved_by"),
-        comment=_row_value(row, "gate_resolution_comment"),
+        status=_gate_resolution_status(_row_value(row, "gate_status")),
+        resolved_at=_optional_text(_row_value(row, "gate_resolved_at")),
+        resolved_by=_optional_text(_row_value(row, "gate_resolved_by")),
+        comment=_optional_text(_row_value(row, "gate_resolution_comment")),
     )
 
 
@@ -449,6 +519,19 @@ def _row_value(row: sqlite3.Row, key: str) -> object | None:
     if key not in row.keys():
         return None
     return row[key]
+
+
+def _optional_text(value: object | None) -> str | None:
+    if value is None:
+        return None
+    return str(value)
+
+
+def _gate_resolution_status(value: object | None) -> GateResolutionStatus:
+    text = str(value or "pending")
+    if text not in {"pending", "approved", "rejected"}:
+        return "pending"
+    return cast(GateResolutionStatus, text)
 
 
 def _ensure_column(
@@ -464,6 +547,36 @@ def _ensure_column(
     }
     if column not in columns:
         connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def _empty_usage_summary() -> dict[str, object]:
+    return {
+        "tokens_by_status": {},
+        "estimated_cost_by_status_currency": [],
+    }
+
+
+def _usage_summary_from_rows(
+    token_rows: list[sqlite3.Row],
+    cost_rows: list[sqlite3.Row],
+) -> dict[str, object]:
+    tokens_by_status: dict[str, dict[str, int]] = {}
+    for row in token_rows:
+        tokens_by_status[str(row["status"])] = {
+            field: int(row[field] or 0) for field in USAGE_TOKEN_FIELDS
+        }
+    costs = [
+        {
+            "status": str(row["status"]),
+            "currency": str(row["currency"] or "unknown"),
+            "estimated_cost": float(row["estimated_cost"] or 0.0),
+        }
+        for row in cost_rows
+    ]
+    return {
+        "tokens_by_status": tokens_by_status,
+        "estimated_cost_by_status_currency": costs,
+    }
 
 
 def _summary_from_row(row: sqlite3.Row) -> GenerationRecordSummary:

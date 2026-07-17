@@ -74,3 +74,55 @@ CREATE INDEX idx_generation_jobs_status
 
 CREATE INDEX idx_generation_jobs_active
     ON generation_jobs (status, created_at);
+
+CREATE TABLE IF NOT EXISTS test_plan_execution_jobs (
+    id varchar(64) PRIMARY KEY,
+    status varchar(16) NOT NULL,
+    created_at datetime(6) NOT NULL,
+    updated_at datetime(6) NOT NULL,
+    started_at datetime(6),
+    finished_at datetime(6),
+    created_epoch double NOT NULL,
+    started_epoch double,
+    finished_epoch double,
+    request_json json NOT NULL,
+    report_json json,
+    error_json json,
+    CONSTRAINT chk_test_plan_execution_jobs_status
+        CHECK (status IN ('queued', 'running', 'succeeded', 'failed'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_test_plan_execution_jobs_created_epoch
+    ON test_plan_execution_jobs (created_epoch DESC);
+
+CREATE INDEX idx_test_plan_execution_jobs_status
+    ON test_plan_execution_jobs (status);
+
+CREATE INDEX idx_test_plan_execution_jobs_active
+    ON test_plan_execution_jobs (status, created_epoch);
+
+CREATE TABLE IF NOT EXISTS test_agent_workflow_jobs (
+    id varchar(64) PRIMARY KEY,
+    status varchar(16) NOT NULL,
+    created_at datetime(6) NOT NULL,
+    updated_at datetime(6) NOT NULL,
+    started_at datetime(6),
+    finished_at datetime(6),
+    created_epoch double NOT NULL,
+    started_epoch double,
+    finished_epoch double,
+    request_json json NOT NULL,
+    result_json json,
+    error_json json,
+    CONSTRAINT chk_test_agent_workflow_jobs_status
+        CHECK (status IN ('queued', 'running', 'succeeded', 'failed'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_test_agent_workflow_jobs_created_epoch
+    ON test_agent_workflow_jobs (created_epoch DESC);
+
+CREATE INDEX idx_test_agent_workflow_jobs_status
+    ON test_agent_workflow_jobs (status);
+
+CREATE INDEX idx_test_agent_workflow_jobs_active
+    ON test_agent_workflow_jobs (status, created_epoch);

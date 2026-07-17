@@ -12,8 +12,11 @@ def test_mysql_initial_schema_contains_runtime_tables() -> None:
     required_fragments = [
         "CREATE TABLE IF NOT EXISTS generation_records",
         "CREATE TABLE IF NOT EXISTS generation_jobs",
+        "CREATE TABLE IF NOT EXISTS test_plan_execution_jobs",
+        "CREATE TABLE IF NOT EXISTS test_agent_workflow_jobs",
         "request_json json NOT NULL",
         "response_json json",
+        "result_json json",
         "usage_json json NOT NULL",
         "error_json json",
         "CHECK (status IN ('success', 'failed'))",
@@ -22,6 +25,12 @@ def test_mysql_initial_schema_contains_runtime_tables() -> None:
         "idx_generation_records_created_at",
         "idx_generation_records_gate_status",
         "idx_generation_jobs_active",
+        "idx_test_plan_execution_jobs_created_epoch",
+        "idx_test_plan_execution_jobs_status",
+        "idx_test_plan_execution_jobs_active",
+        "idx_test_agent_workflow_jobs_created_epoch",
+        "idx_test_agent_workflow_jobs_status",
+        "idx_test_agent_workflow_jobs_active",
     ]
 
     for fragment in required_fragments:
@@ -38,4 +47,6 @@ def test_mysql_init_script_uses_optional_pymysql_dependency() -> None:
     assert "import pymysql" in script
     assert "requirements.txt" in script
     assert "mysql:// or mysql+pymysql://" in script
+    assert "Duplicate key name" in script
+    assert "1061" in script
     assert "PyMySQL" in requirements

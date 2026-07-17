@@ -118,9 +118,33 @@ def test_generation_history_records_failure_and_filters_by_status(tmp_path: Path
 
     failed_records = store.list_records(status="failed")
     gate_records = store.list_gate_records()
+    record_counts = store.count_records_by_status()
+    gate_counts = store.count_gate_records_by_status()
+    usage_summary = store.summarize_usage()
     detail = store.get_record(failed_id or "")
 
     assert [record.status for record in failed_records] == ["failed"]
+    assert record_counts == {"failed": 1, "success": 1}
+    assert gate_counts == {"pending": 1}
+    assert usage_summary["tokens_by_status"] == {
+        "failed": {
+            "prompt_tokens_estimate": 40,
+            "completion_tokens_estimate": 0,
+            "total_tokens_estimate": 40,
+        },
+        "success": {
+            "prompt_tokens_estimate": 50,
+            "completion_tokens_estimate": 20,
+            "total_tokens_estimate": 70,
+        },
+    }
+    assert usage_summary["estimated_cost_by_status_currency"] == [
+        {
+            "status": "success",
+            "currency": "CNY",
+            "estimated_cost": 0.001,
+        }
+    ]
     assert failed_records[0].error == "upstream failed"
     assert failed_records[0].usage.prompt_tokens_estimate == 40
     assert failed_records[0].gate is not None
@@ -149,6 +173,7 @@ def test_generation_history_records_failure_and_filters_by_status(tmp_path: Path
     pending_gate_records = store.list_gate_records()
     approved_gate_records = store.list_gate_records(gate_status="approved")
     all_gate_records = store.list_gate_records(gate_status=None)
+    resolved_gate_counts = store.count_gate_records_by_status()
 
     assert resolved is not None
     assert resolved.gate_resolution is not None
@@ -159,6 +184,7 @@ def test_generation_history_records_failure_and_filters_by_status(tmp_path: Path
     assert pending_gate_records == []
     assert [record.id for record in approved_gate_records] == [failed_id]
     assert [record.id for record in all_gate_records] == [failed_id]
+    assert resolved_gate_counts == {"approved": 1}
 
     try:
         store.resolve_gate_record(failed_id or "", decision="rejected")
@@ -181,6 +207,12 @@ def test_generation_history_returns_empty_when_disabled(tmp_path: Path) -> None:
     assert record_id is None
     assert store.list_records() == []
     assert store.list_gate_records() == []
+    assert store.count_records_by_status() == {}
+    assert store.count_gate_records_by_status() == {}
+    assert store.summarize_usage() == {
+        "tokens_by_status": {},
+        "estimated_cost_by_status_currency": [],
+    }
     assert store.get_record("missing") is None
     assert store.resolve_gate_record("missing", decision="approved") is None
     assert not (tmp_path / "history.sqlite3").exists()

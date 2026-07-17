@@ -43,13 +43,21 @@ def main() -> None:
     connection = pymysql.connect(**config, cursorclass=DictCursor, autocommit=False)
     try:
         with connection.cursor() as cursor:
+            skipped = 0
             for statement in _split_sql_statements(schema_sql):
-                cursor.execute(statement)
+                try:
+                    cursor.execute(statement)
+                except pymysql.err.OperationalError as exc:
+                    if _is_idempotent_schema_error(exc):
+                        skipped += 1
+                        continue
+                    raise
         connection.commit()
     finally:
         connection.close()
 
-    print(f"Applied MySQL schema: {schema_path}")
+    suffix = f" skipped_existing={skipped}" if skipped else ""
+    print(f"Applied MySQL schema: {schema_path}{suffix}")
 
 
 def _parse_mysql_url(database_url: str) -> dict[str, object]:
@@ -88,6 +96,13 @@ def _split_sql_statements(schema_sql: str) -> list[str]:
     if trailing:
         statements.append(trailing)
     return statements
+
+
+def _is_idempotent_schema_error(exc: Exception) -> bool:
+    code = exc.args[0] if exc.args else None
+    return code in {
+        1061,  # Duplicate key name.
+    }
 
 
 if __name__ == "__main__":

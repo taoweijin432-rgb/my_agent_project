@@ -68,6 +68,7 @@ def test_settings_disables_credentials_when_cors_origin_is_wildcard(monkeypatch)
 def test_settings_falls_back_for_invalid_llm_numeric_values(monkeypatch) -> None:
     monkeypatch.setenv("LLM_MAX_RETRIES", "-1")
     monkeypatch.setenv("LLM_TIMEOUT_SECONDS", "0")
+    monkeypatch.setenv("LLM_RETRY_BACKOFF_SECONDS", "-1")
     monkeypatch.setenv("LLM_PROMPT_PRICE_PER_1K_TOKENS", "-1")
     monkeypatch.setenv("LLM_COMPLETION_PRICE_PER_1K_TOKENS", "invalid")
 
@@ -75,17 +76,20 @@ def test_settings_falls_back_for_invalid_llm_numeric_values(monkeypatch) -> None
 
     assert settings.llm_max_retries == 2
     assert settings.llm_timeout_seconds == 60
+    assert settings.llm_retry_backoff_seconds == 0
     assert settings.llm_prompt_price_per_1k_tokens == 0
     assert settings.llm_completion_price_per_1k_tokens == 0
 
 
-def test_settings_reads_llm_cost_configuration(monkeypatch) -> None:
+def test_settings_reads_llm_cost_and_retry_configuration(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_RETRY_BACKOFF_SECONDS", "0.5")
     monkeypatch.setenv("LLM_PROMPT_PRICE_PER_1K_TOKENS", "0.01")
     monkeypatch.setenv("LLM_COMPLETION_PRICE_PER_1K_TOKENS", "0.02")
     monkeypatch.setenv("LLM_COST_CURRENCY", "CNY")
 
     settings = get_settings()
 
+    assert settings.llm_retry_backoff_seconds == 0.5
     assert settings.llm_prompt_price_per_1k_tokens == 0.01
     assert settings.llm_completion_price_per_1k_tokens == 0.02
     assert settings.llm_cost_currency == "CNY"
@@ -123,6 +127,12 @@ def test_settings_defaults_to_langgraph_workflow_backend() -> None:
     assert settings.agent_workflow_backend == "langgraph"
 
 
+def test_settings_defaults_to_glm_4_flash_chat_model() -> None:
+    settings = get_settings()
+
+    assert settings.zhipu_chat_model == "glm-4-flash"
+
+
 def test_settings_reads_generation_job_queue_configuration(monkeypatch) -> None:
     monkeypatch.setenv("GENERATION_JOB_QUEUE_BACKEND", "rq")
     monkeypatch.setenv("GENERATION_JOB_MAX_WORKERS", "4")
@@ -154,12 +164,14 @@ def test_settings_reads_test_tool_pytest_configuration(monkeypatch) -> None:
         "TEST_TOOL_HTTP_BASE_URL_ALLOWLIST",
         "http://127.0.0.1:8000, http://localhost:8000",
     )
+    monkeypatch.setenv("TEST_TOOL_HTTP_ALLOWED_HEADERS", "Content-Type, X-Request-ID")
     monkeypatch.setenv("TEST_TOOL_ARTIFACT_DIR", "data/custom-artifacts")
     monkeypatch.setenv("TEST_TOOL_ARTIFACT_MAX_BYTES", "4096")
     monkeypatch.setenv("TEST_TOOL_ARTIFACT_RETENTION_SECONDS", "3600")
     monkeypatch.setenv("TEST_TOOL_PYTEST_ENABLED", "true")
     monkeypatch.setenv("TEST_TOOL_PYTEST_ALLOWED_PATHS", "tests,generated_tests")
     monkeypatch.setenv("TEST_TOOL_PYTEST_TIMEOUT_SECONDS", "30")
+    monkeypatch.setenv("TEST_TOOL_PYTEST_ENV_ALLOWLIST", "PATH, PYTHONPATH")
 
     settings = get_settings()
 
@@ -167,12 +179,14 @@ def test_settings_reads_test_tool_pytest_configuration(monkeypatch) -> None:
         "http://127.0.0.1:8000",
         "http://localhost:8000",
     ]
+    assert settings.test_tool_http_allowed_headers == ["Content-Type", "X-Request-ID"]
     assert settings.test_tool_artifact_dir == "data/custom-artifacts"
     assert settings.test_tool_artifact_max_bytes == 4096
     assert settings.test_tool_artifact_retention_seconds == 3600
     assert settings.test_tool_pytest_enabled is True
     assert settings.test_tool_pytest_allowed_paths == ["tests", "generated_tests"]
     assert settings.test_tool_pytest_timeout_seconds == 30
+    assert settings.test_tool_pytest_env_allowlist == ["PATH", "PYTHONPATH"]
 
 
 def test_settings_reads_agent_query_rewrite_configuration(monkeypatch) -> None:
@@ -231,6 +245,9 @@ def test_settings_reads_generation_history_configuration(monkeypatch) -> None:
     monkeypatch.setenv("GENERATION_HISTORY_ENABLED", "false")
     monkeypatch.setenv("DATABASE_BACKEND", "sqlite")
     monkeypatch.setenv("DATABASE_URL", "mysql://qa:secret@localhost:3306/agent")
+    monkeypatch.setenv("MYSQL_CONNECT_TIMEOUT_SECONDS", "7")
+    monkeypatch.setenv("MYSQL_READ_TIMEOUT_SECONDS", "11")
+    monkeypatch.setenv("MYSQL_WRITE_TIMEOUT_SECONDS", "13")
     monkeypatch.setenv("GENERATION_HISTORY_DB_PATH", "data/history-test.sqlite3")
 
     settings = get_settings()
@@ -238,7 +255,22 @@ def test_settings_reads_generation_history_configuration(monkeypatch) -> None:
     assert settings.generation_history_enabled is False
     assert settings.database_backend == "sqlite"
     assert settings.database_url == "mysql://qa:secret@localhost:3306/agent"
+    assert settings.mysql_connect_timeout_seconds == 7
+    assert settings.mysql_read_timeout_seconds == 11
+    assert settings.mysql_write_timeout_seconds == 13
     assert settings.generation_history_db_path == "data/history-test.sqlite3"
+
+
+def test_settings_falls_back_for_invalid_mysql_timeout_values(monkeypatch) -> None:
+    monkeypatch.setenv("MYSQL_CONNECT_TIMEOUT_SECONDS", "0")
+    monkeypatch.setenv("MYSQL_READ_TIMEOUT_SECONDS", "-1")
+    monkeypatch.setenv("MYSQL_WRITE_TIMEOUT_SECONDS", "invalid")
+
+    settings = get_settings()
+
+    assert settings.mysql_connect_timeout_seconds == 10
+    assert settings.mysql_read_timeout_seconds == 30
+    assert settings.mysql_write_timeout_seconds == 30
 
 
 def test_production_validation_is_disabled_for_development_defaults() -> None:
@@ -263,6 +295,9 @@ def test_production_validation_accepts_hardened_settings() -> None:
             cors_allow_origins=["https://qa.example.com"],
             embedding_provider="sentence_transformers",
             embedding_local_files_only=True,
+            test_tool_http_base_url_allowlist=[
+                "https://api-under-test.example.com"
+            ],
             generation_history_db_path="data/app.sqlite3",
         )
     )
@@ -282,11 +317,30 @@ def test_production_validation_accepts_hardened_app_api_keys() -> None:
             cors_allow_origins=["https://qa.example.com"],
             embedding_provider="sentence_transformers",
             embedding_local_files_only=True,
+            test_tool_http_base_url_allowlist=[
+                "https://api-under-test.example.com"
+            ],
             generation_history_db_path="data/app.sqlite3",
         )
     )
 
     assert errors == []
+
+
+def test_production_validation_requires_test_tool_http_allowlist() -> None:
+    errors = validate_production_settings(
+        Settings(
+            app_env="production",
+            app_api_key="prod-service-key-1234567890",
+            zhipu_api_key="prod-zhipu-key-1234567890",
+            cors_allow_origins=["https://qa.example.com"],
+            embedding_provider="sentence_transformers",
+            embedding_local_files_only=True,
+            generation_history_db_path="data/app.sqlite3",
+        )
+    )
+
+    assert any("TEST_TOOL_HTTP_BASE_URL_ALLOWLIST" in error for error in errors)
 
 
 def test_production_validation_rejects_weak_api_keys_in_list() -> None:
@@ -381,3 +435,21 @@ def test_production_validation_requires_database_url_for_mysql() -> None:
     )
 
     assert any("DATABASE_URL" in error for error in errors)
+
+
+def test_production_validation_rejects_invalid_mysql_timeouts() -> None:
+    errors = validate_production_settings(
+        Settings(
+            app_env="prod",
+            app_api_key="prod-service-key-1234567890",
+            zhipu_api_key="prod-zhipu-key-1234567890",
+            cors_allow_origins=["https://qa.example.com"],
+            embedding_provider="sentence_transformers",
+            embedding_local_files_only=True,
+            database_backend="mysql",
+            database_url="mysql://qa:secret@localhost:3306/agent",
+            mysql_connect_timeout_seconds=0,
+        )
+    )
+
+    assert any("MYSQL_CONNECT_TIMEOUT_SECONDS" in error for error in errors)

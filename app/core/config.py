@@ -110,6 +110,7 @@ class Settings:
     embedding_local_files_only: bool = False
     llm_timeout_seconds: int = 60
     llm_max_retries: int = 2
+    llm_retry_backoff_seconds: float = 0.0
     llm_prompt_price_per_1k_tokens: float = 0.0
     llm_completion_price_per_1k_tokens: float = 0.0
     llm_cost_currency: str = "CNY"
@@ -133,12 +134,18 @@ class Settings:
     rq_failure_ttl_seconds: int = 86400
     generation_job_stale_after_seconds: int = 1800
     test_tool_http_base_url_allowlist: list[str] = field(default_factory=list)
+    test_tool_http_allowed_headers: list[str] = field(
+        default_factory=lambda: ["Accept", "Content-Type", "X-Request-ID"]
+    )
     test_tool_artifact_dir: str = "data/test-artifacts"
     test_tool_artifact_max_bytes: int = 200000
     test_tool_artifact_retention_seconds: int = 604800
     test_tool_pytest_enabled: bool = False
     test_tool_pytest_allowed_paths: list[str] = field(default_factory=lambda: ["tests"])
     test_tool_pytest_timeout_seconds: int = 60
+    test_tool_pytest_env_allowlist: list[str] = field(
+        default_factory=lambda: ["PATH", "PYTHONPATH"]
+    )
     rate_limit_enabled: bool = True
     rate_limit_requests: int = 60
     rate_limit_window_seconds: int = 60
@@ -146,6 +153,9 @@ class Settings:
     request_log_format: str = "text"
     database_backend: str = "sqlite"
     database_url: str | None = None
+    mysql_connect_timeout_seconds: int = 10
+    mysql_read_timeout_seconds: int = 30
+    mysql_write_timeout_seconds: int = 30
     generation_history_enabled: bool = True
     generation_history_db_path: str = "data/app.sqlite3"
     cors_allow_origins: list[str] = field(
@@ -273,6 +283,11 @@ def get_settings() -> Settings:
             2,
             minimum=0,
         ),
+        llm_retry_backoff_seconds=_get_float(
+            _get_config_value(legacy, "LLM_RETRY_BACKOFF_SECONDS"),
+            0.0,
+            minimum=0.0,
+        ),
         llm_prompt_price_per_1k_tokens=_get_float(
             _get_config_value(legacy, "LLM_PROMPT_PRICE_PER_1K_TOKENS"),
             0.0,
@@ -391,6 +406,10 @@ def get_settings() -> Settings:
             _get_config_value(legacy, "TEST_TOOL_HTTP_BASE_URL_ALLOWLIST"),
             "",
         ),
+        test_tool_http_allowed_headers=_get_csv(
+            _get_config_value(legacy, "TEST_TOOL_HTTP_ALLOWED_HEADERS"),
+            "Accept,Content-Type,X-Request-ID",
+        ),
         test_tool_artifact_dir=_get_config_value(
             legacy,
             "TEST_TOOL_ARTIFACT_DIR",
@@ -420,6 +439,10 @@ def get_settings() -> Settings:
             60,
             minimum=1,
         ),
+        test_tool_pytest_env_allowlist=_get_csv(
+            _get_config_value(legacy, "TEST_TOOL_PYTEST_ENV_ALLOWLIST"),
+            "PATH,PYTHONPATH",
+        ),
         rate_limit_enabled=_get_bool(
             _get_config_value(legacy, "RATE_LIMIT_ENABLED"),
             True,
@@ -445,6 +468,21 @@ def get_settings() -> Settings:
             _get_config_value(legacy, "DATABASE_BACKEND", default="sqlite") or "sqlite"
         ).strip().lower(),
         database_url=_get_config_value(legacy, "DATABASE_URL"),
+        mysql_connect_timeout_seconds=_get_int(
+            _get_config_value(legacy, "MYSQL_CONNECT_TIMEOUT_SECONDS"),
+            10,
+            minimum=1,
+        ),
+        mysql_read_timeout_seconds=_get_int(
+            _get_config_value(legacy, "MYSQL_READ_TIMEOUT_SECONDS"),
+            30,
+            minimum=1,
+        ),
+        mysql_write_timeout_seconds=_get_int(
+            _get_config_value(legacy, "MYSQL_WRITE_TIMEOUT_SECONDS"),
+            30,
+            minimum=1,
+        ),
         generation_history_enabled=_get_bool(
             _get_config_value(legacy, "GENERATION_HISTORY_ENABLED"),
             True,
@@ -514,6 +552,10 @@ def validate_production_settings(settings: Settings) -> list[str]:
         errors.append(
             "EMBEDDING_LOCAL_FILES_ONLY should be true in production; download models before deploy."
         )
+    if not settings.test_tool_http_base_url_allowlist:
+        errors.append(
+            "TEST_TOOL_HTTP_BASE_URL_ALLOWLIST must contain at least one allowed base URL in production."
+        )
     if not settings.rate_limit_enabled:
         errors.append("RATE_LIMIT_ENABLED must be true in production.")
     if not settings.request_log_enabled:
@@ -530,6 +572,14 @@ def validate_production_settings(settings: Settings) -> list[str]:
         errors.append("DATABASE_BACKEND must be 'sqlite' or 'mysql'.")
     if settings.database_backend == "mysql" and not settings.database_url:
         errors.append("DATABASE_URL must be configured when DATABASE_BACKEND=mysql.")
+    if settings.database_backend == "mysql" and (
+        settings.mysql_connect_timeout_seconds < 1
+        or settings.mysql_read_timeout_seconds < 1
+        or settings.mysql_write_timeout_seconds < 1
+    ):
+        errors.append(
+            "MYSQL_CONNECT_TIMEOUT_SECONDS, MYSQL_READ_TIMEOUT_SECONDS, and MYSQL_WRITE_TIMEOUT_SECONDS must be positive when DATABASE_BACKEND=mysql."
+        )
     if (
         settings.database_backend == "sqlite"
         and settings.generation_history_db_path.strip() in {"", ":memory:"}

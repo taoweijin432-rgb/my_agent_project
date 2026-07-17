@@ -46,6 +46,9 @@ def test_runtime_env_example_contains_required_production_settings() -> None:
         "REQUEST_LOG_ENABLED=true",
         "REQUEST_LOG_FORMAT=text",
         "DATABASE_BACKEND=sqlite",
+        "MYSQL_CONNECT_TIMEOUT_SECONDS=10",
+        "MYSQL_READ_TIMEOUT_SECONDS=30",
+        "MYSQL_WRITE_TIMEOUT_SECONDS=30",
         "MYSQL_ROOT_PASSWORD=",
         "MYSQL_DATABASE=agent",
         "MYSQL_USER=agent_user",
@@ -69,7 +72,8 @@ def test_docker_compose_uses_runtime_env_and_persistent_volumes() -> None:
     assert "IMAGE_TAG" in content
     assert "INSTALLER" in content
     assert "API_HOST_PORT" in content
-    assert "REDIS_HOST_PORT" in content
+    assert "REDIS_HOST_PORT" not in content
+    assert "127.0.0.1:${REDIS_HOST_PORT" not in content
     assert "APP_DATA_MOUNT" in content
     assert "MODEL_CACHE_MOUNT" in content
     assert "redis:7-alpine" in content
@@ -138,7 +142,8 @@ def test_mysql_compose_defines_mysql_service_and_backend_override() -> None:
     assert "mysql:" in content
     assert "mysql:8.0" in content
     assert "profiles:" in content
-    assert "MYSQL_HOST_PORT" in content
+    assert "MYSQL_HOST_PORT" not in content
+    assert "127.0.0.1:${MYSQL_HOST_PORT" not in content
     assert "mysql-data:/var/lib/mysql" in content
     assert "migrations/mysql/001_initial.sql" in content
     assert "mysqladmin ping" in content
@@ -151,6 +156,9 @@ def test_mysql_compose_defines_mysql_service_and_backend_override() -> None:
     assert "MYSQL_DATABASE=agent" in env_example
     assert "MYSQL_USER=agent_user" in env_example
     assert "MYSQL_PASSWORD=" in env_example
+    assert "MYSQL_CONNECT_TIMEOUT_SECONDS=10" in env_example
+    assert "MYSQL_READ_TIMEOUT_SECONDS=30" in env_example
+    assert "MYSQL_WRITE_TIMEOUT_SECONDS=30" in env_example
     assert "DATABASE_URL=mysql://agent_user:your_agent_password@mysql:3306/agent?charset=utf8mb4" in env_example
 
 
@@ -166,6 +174,8 @@ def test_mysql_operations_doc_covers_backup_and_restore() -> None:
     assert "agent_restore_test_mysql-data" in content
     assert "generation_records" in content
     assert "generation_jobs" in content
+    assert "MYSQL_CONNECT_TIMEOUT_SECONDS" in content
+    assert "connect_timeout" in content
     assert "不要在不确认数据价值的情况下执行 `docker compose down -v`" in content
 
 

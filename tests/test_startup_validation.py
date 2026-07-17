@@ -29,6 +29,10 @@ def test_create_app_accepts_hardened_production_configuration(monkeypatch) -> No
     monkeypatch.setenv("CORS_ALLOW_ORIGINS", "https://qa.example.com")
     monkeypatch.setenv("EMBEDDING_PROVIDER", "sentence_transformers")
     monkeypatch.setenv("EMBEDDING_LOCAL_FILES_ONLY", "true")
+    monkeypatch.setenv(
+        "TEST_TOOL_HTTP_BASE_URL_ALLOWLIST",
+        "https://api-under-test.example.com",
+    )
     monkeypatch.setenv("RATE_LIMIT_ENABLED", "true")
     monkeypatch.setenv("REQUEST_LOG_ENABLED", "true")
     monkeypatch.setenv("GENERATION_HISTORY_ENABLED", "true")

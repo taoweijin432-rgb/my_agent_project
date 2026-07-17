@@ -5,7 +5,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Protocol
+from typing import Literal, Protocol
 from uuid import uuid4
 
 from app.core.config import Settings
@@ -27,6 +27,7 @@ from app.services.stores import GenerationJobRepository, create_generation_job_s
 
 logger = logging.getLogger("app.generation_jobs")
 GenerationJobRunner = Callable[[GenerateRequest, str], tuple[GenerateResponse, str | None]]
+GenerationJobStatus = Literal["queued", "running", "succeeded", "failed"]
 
 
 class GenerationJobQueueFullError(RuntimeError):
@@ -58,7 +59,7 @@ class GenerationJobQueue(Protocol):
 class _GenerationJobRecord:
     id: str
     request: GenerateRequest
-    status: str
+    status: GenerationJobStatus
     created_at: str
     updated_at: str
     created_epoch: float
