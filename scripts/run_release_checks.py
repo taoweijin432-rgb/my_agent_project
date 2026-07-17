@@ -34,6 +34,20 @@ DEFAULT_QUEUE_OBSERVABILITY_ENV = {
     "GENERATION_JOB_QUEUE_BACKEND": "in_memory",
     "GENERATION_HISTORY_DB_PATH": "/tmp/ai-testcase-generator-queue-check/app.sqlite3",
 }
+DEFAULT_TEST_PLAN_EXECUTION_QUEUE_OBSERVABILITY_ENV = {
+    "DATABASE_BACKEND": "sqlite",
+    "GENERATION_JOB_QUEUE_BACKEND": "in_memory",
+    "GENERATION_HISTORY_DB_PATH": (
+        "/tmp/ai-testcase-generator-test-plan-execution-queue-check/app.sqlite3"
+    ),
+}
+DEFAULT_TEST_AGENT_WORKFLOW_QUEUE_OBSERVABILITY_ENV = {
+    "DATABASE_BACKEND": "sqlite",
+    "GENERATION_JOB_QUEUE_BACKEND": "in_memory",
+    "GENERATION_HISTORY_DB_PATH": (
+        "/tmp/ai-testcase-generator-test-agent-workflow-queue-check/app.sqlite3"
+    ),
+}
 DEFAULT_PYTEST_TARGETS = [
     "tests/test_agent_workflow.py",
     "tests/test_auth.py",
@@ -48,24 +62,42 @@ DEFAULT_PYTEST_TARGETS = [
     "tests/test_generator.py",
     "tests/test_history.py",
     "tests/test_knowledge_api.py",
+    "tests/test_metrics.py",
     "tests/test_middleware.py",
     "tests/test_middleware_logging.py",
+    "tests/test_monitoring_docs.py",
+    "tests/test_monitoring_metrics_check.py",
     "tests/test_prompt.py",
     "tests/test_pytest_export.py",
     "tests/test_quality.py",
+    "tests/test_queue_alerts.py",
     "tests/test_reviewer.py",
     "tests/test_runtime_paths.py",
     "tests/test_queue_observability.py",
     "tests/test_rag_evaluation.py",
     "tests/test_readiness.py",
     "tests/test_recovery_smoke.py",
+    "tests/test_runtime_dependency_outage_smoke.py",
+    "tests/test_rq_mysql_worker_stability_smoke.py",
+    "tests/test_test_agent_workflow_rq_mysql_smoke.py",
+    "tests/test_test_agent_workflow.py",
     "tests/test_test_execution_smoke.py",
+    "tests/test_test_execution_evaluation.py",
+    "tests/test_test_agent_workflow_evaluation.py",
+    "tests/test_test_agent_workflow_jobs.py",
+    "tests/test_test_agent_workflow_queue_observability.py",
+    "tests/test_test_agent_workflow_store.py",
     "tests/test_test_plan_api.py",
     "tests/test_test_plan_evaluation.py",
+    "tests/test_test_plan_execution_queue_observability.py",
     "tests/test_test_plan_execution_jobs.py",
+    "tests/test_test_plan_execution_runtime_smoke.py",
     "tests/test_test_plan_execution_store.py",
+    "tests/test_test_plan_execution_worker_smoke.py",
     "tests/test_test_plan_generator.py",
     "tests/test_test_plan_models.py",
+    "tests/test_test_report.py",
+    "tests/test_test_report_evaluation.py",
     "tests/test_tool_adapters.py",
     "tests/test_tool_artifacts.py",
     "tests/test_tool_execution.py",
@@ -74,11 +106,17 @@ DEFAULT_PYTEST_TARGETS = [
 DEFAULT_TYPE_CHECK_TARGETS = [
     "app/models/test_plan.py",
     "app/services/tool_adapters.py",
+    "app/services/tool_artifacts.py",
     "app/services/tool_execution.py",
     "app/services/test_report.py",
     "app/services/test_plan_execution.py",
+    "app/services/test_agent_workflow.py",
+    "app/services/test_agent_workflow_jobs.py",
+    "app/services/test_agent_workflow_metrics.py",
+    "app/services/test_agent_workflow_store.py",
     "app/services/test_plan_execution_jobs.py",
     "app/services/test_plan_execution_store.py",
+    "app/workers/test_agent_workflow_rq.py",
     "app/workers/test_plan_execution_rq.py",
 ]
 
@@ -134,6 +172,21 @@ def parse_args() -> argparse.Namespace:
         help="Skip deterministic test plan evaluation.",
     )
     parser.add_argument(
+        "--skip-test-report-eval",
+        action="store_true",
+        help="Skip deterministic test execution report evaluation.",
+    )
+    parser.add_argument(
+        "--skip-test-execution-eval",
+        action="store_true",
+        help="Skip deterministic end-to-end test execution evaluation.",
+    )
+    parser.add_argument(
+        "--skip-test-agent-workflow-eval",
+        action="store_true",
+        help="Skip deterministic requirements-to-report workflow evaluation.",
+    )
+    parser.add_argument(
         "--skip-type-check",
         action="store_true",
         help="Skip mypy checks for test-agent contract modules.",
@@ -141,7 +194,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--skip-recovery-smoke",
         action="store_true",
-        help="Skip stale generation job recovery smoke.",
+        help="Skip stale job recovery and test-plan execution worker smoke.",
     )
     parser.add_argument(
         "--skip-readiness-check",
@@ -149,9 +202,14 @@ def parse_args() -> argparse.Namespace:
         help="Skip runtime readiness check.",
     )
     parser.add_argument(
+        "--skip-monitoring-check",
+        action="store_true",
+        help="Skip local monitoring metrics/alert template check.",
+    )
+    parser.add_argument(
         "--skip-queue-check",
         action="store_true",
-        help="Skip generation queue/database observability check.",
+        help="Skip queue/database observability checks.",
     )
     parser.add_argument(
         "--skip-diff-check",
@@ -172,6 +230,41 @@ def parse_args() -> argparse.Namespace:
         "--include-llm-smoke",
         action="store_true",
         help="Run optional real FastAPI + RAG + LLM strong-gate smoke.",
+    )
+    parser.add_argument(
+        "--include-llm-test-plan-eval",
+        action="store_true",
+        help="Run optional real LLM test-plan evaluation without deterministic fallback.",
+    )
+    parser.add_argument(
+        "--include-llm-workflow-eval",
+        action="store_true",
+        help="Run optional real LLM requirements-to-report workflow evaluation.",
+    )
+    parser.add_argument(
+        "--include-llm-workflow-benchmark",
+        action="store_true",
+        help="Run optional real LLM workflow latency benchmark.",
+    )
+    parser.add_argument(
+        "--include-runtime-outage-smoke",
+        action="store_true",
+        help="Run optional Docker Redis/MySQL outage recovery smoke.",
+    )
+    parser.add_argument(
+        "--include-rq-mysql-worker-stability-smoke",
+        action="store_true",
+        help="Run optional Docker Redis/RQ + MySQL worker stability smoke.",
+    )
+    parser.add_argument(
+        "--include-test-agent-workflow-rq-mysql-smoke",
+        action="store_true",
+        help="Run optional Docker Redis/RQ + MySQL test Agent workflow smoke.",
+    )
+    parser.add_argument(
+        "--include-queue-alert-check",
+        action="store_true",
+        help="Run optional queue metrics/alert threshold check.",
     )
     parser.add_argument("--llm-port", type=int, default=8028)
     parser.add_argument("--llm-timeout", type=int, default=240)
@@ -287,13 +380,288 @@ def build_default_commands(args: argparse.Namespace) -> list[CheckCommand]:
                 ],
             )
         )
-    if not args.skip_recovery_smoke:
+    if args.include_llm_test_plan_eval:
         commands.append(
             CheckCommand(
-                name="generation-recovery-smoke",
+                name="llm-test-plan-eval",
                 command=[
                     args.python,
-                    "scripts/smoke_recover_stale_generation_jobs.py",
+                    "scripts/evaluate_test_plan.py",
+                    "--json",
+                    "--use-llm",
+                    "--fail-under-case-pass-rate",
+                    "1.0",
+                    "--fail-under-tool-hit-rate",
+                    "1.0",
+                    "--fail-under-test-type-hit-rate",
+                    "1.0",
+                    "--fail-under-risk-keyword-hit-rate",
+                    "1.0",
+                ],
+            )
+        )
+    if not args.skip_test_report_eval:
+        commands.append(
+            CheckCommand(
+                name="test-report-eval",
+                command=[
+                    args.python,
+                    "scripts/evaluate_test_report.py",
+                    "--json",
+                    "--fail-under-case-pass-rate",
+                    "1.0",
+                    "--fail-under-status-match-rate",
+                    "1.0",
+                    "--fail-under-summary-fact-quality-rate",
+                    "1.0",
+                    "--fail-under-coverage-match-rate",
+                    "1.0",
+                    "--fail-under-defect-grounding-rate",
+                    "1.0",
+                    "--fail-under-reason-classification-rate",
+                    "1.0",
+                    "--fail-under-reason-aware-recommendation-rate",
+                    "1.0",
+                    "--fail-under-recommendation-grounding-rate",
+                    "1.0",
+                    "--fail-under-next-action-quality-rate",
+                    "1.0",
+                    "--fail-under-evidence-artifact-quality-rate",
+                    "1.0",
+                    "--fail-under-export-fact-rate",
+                    "1.0",
+                ],
+            )
+        )
+    if not args.skip_test_execution_eval:
+        commands.append(
+            CheckCommand(
+                name="test-execution-eval",
+                command=[
+                    args.python,
+                    "scripts/evaluate_test_execution.py",
+                    "--json",
+                    "--fail-under-case-pass-rate",
+                    "1.0",
+                    "--fail-under-report-status-rate",
+                    "1.0",
+                    "--fail-under-summary-fact-quality-rate",
+                    "1.0",
+                    "--fail-under-tool-status-rate",
+                    "1.0",
+                    "--fail-under-coverage-match-rate",
+                    "1.0",
+                    "--fail-under-defect-grounding-rate",
+                    "1.0",
+                    "--fail-under-blocked-grounding-rate",
+                    "1.0",
+                    "--fail-under-evidence-rate",
+                    "1.0",
+                ],
+            )
+        )
+    if not args.skip_test_agent_workflow_eval:
+        commands.append(
+            CheckCommand(
+                name="test-agent-workflow-eval",
+                command=[
+                    args.python,
+                    "scripts/evaluate_test_agent_workflow.py",
+                    "--json",
+                    "--fail-under-case-pass-rate",
+                    "1.0",
+                    "--fail-under-tool-args-schema-rate",
+                    "1.0",
+                    "--fail-under-plan-tool-hit-rate",
+                    "1.0",
+                    "--fail-under-plan-test-type-hit-rate",
+                    "1.0",
+                    "--fail-under-plan-step-count-rate",
+                    "1.0",
+                    "--fail-under-risk-keyword-hit-rate",
+                    "1.0",
+                    "--fail-under-report-status-rate",
+                    "1.0",
+                    "--fail-under-summary-fact-quality-rate",
+                    "1.0",
+                    "--fail-under-tool-status-rate",
+                    "1.0",
+                    "--fail-under-coverage-match-rate",
+                    "1.0",
+                    "--fail-under-defect-grounding-rate",
+                    "1.0",
+                    "--fail-under-reason-classification-rate",
+                    "1.0",
+                    "--fail-under-reason-aware-recommendation-rate",
+                    "1.0",
+                    "--fail-under-recommendation-grounding-rate",
+                    "1.0",
+                    "--fail-under-next-action-quality-rate",
+                    "1.0",
+                    "--fail-under-evidence-artifact-quality-rate",
+                    "1.0",
+                    "--fail-under-evidence-rate",
+                    "1.0",
+                ],
+            )
+        )
+    if args.include_llm_workflow_eval:
+        commands.append(
+            CheckCommand(
+                name="llm-test-agent-workflow-eval",
+                command=[
+                    args.python,
+                    "scripts/evaluate_test_agent_workflow.py",
+                    "--json",
+                    "--use-llm",
+                    "--concurrency",
+                    "1",
+                    "--case-delay-seconds",
+                    "2",
+                    "--strict-plan-tools",
+                    "--strict-plan-test-types",
+                    "--strict-http-headers",
+                    "--fail-under-case-pass-rate",
+                    "1.0",
+                    "--fail-under-tool-args-schema-rate",
+                    "1.0",
+                    "--fail-under-plan-tool-hit-rate",
+                    "1.0",
+                    "--fail-under-plan-test-type-hit-rate",
+                    "1.0",
+                    "--fail-under-plan-step-count-rate",
+                    "1.0",
+                    "--fail-under-risk-keyword-hit-rate",
+                    "1.0",
+                    "--fail-under-report-status-rate",
+                    "1.0",
+                    "--fail-under-summary-fact-quality-rate",
+                    "1.0",
+                    "--fail-under-tool-status-rate",
+                    "1.0",
+                    "--fail-under-coverage-match-rate",
+                    "1.0",
+                    "--fail-under-defect-grounding-rate",
+                    "1.0",
+                    "--fail-under-reason-classification-rate",
+                    "1.0",
+                    "--fail-under-reason-aware-recommendation-rate",
+                    "1.0",
+                    "--fail-under-recommendation-grounding-rate",
+                    "1.0",
+                    "--fail-under-next-action-quality-rate",
+                    "1.0",
+                    "--fail-under-evidence-artifact-quality-rate",
+                    "1.0",
+                    "--fail-under-evidence-rate",
+                    "1.0",
+                    "--fail-under-http-header-value-rate",
+                    "1.0",
+                ],
+            )
+        )
+    if args.include_llm_workflow_benchmark:
+        commands.append(
+            CheckCommand(
+                name="llm-test-agent-workflow-benchmark",
+                command=[
+                    args.python,
+                    "scripts/evaluate_test_agent_workflow.py",
+                    "--json",
+                    "--use-llm",
+                    "--concurrency",
+                    "1",
+                    "--case-delay-seconds",
+                    "2",
+                    "--fail-over-total-ms",
+                    "240000",
+                    "--fail-over-plan-generation-ms",
+                    "180000",
+                    "--benchmark-history-jsonl",
+                    "data/llm-workflow-benchmark-history.jsonl",
+                ],
+            )
+        )
+    if not args.skip_recovery_smoke:
+        commands.extend(
+            [
+                CheckCommand(
+                    name="generation-recovery-smoke",
+                    command=[
+                        args.python,
+                        "scripts/smoke_recover_stale_generation_jobs.py",
+                        "--json",
+                    ],
+                ),
+                CheckCommand(
+                    name="test-plan-execution-worker-smoke",
+                    command=[
+                        args.python,
+                        "scripts/smoke_test_plan_execution_worker.py",
+                        "--json",
+                    ],
+                ),
+                CheckCommand(
+                    name="test-plan-execution-runtime-smoke",
+                    command=[
+                        args.python,
+                        "scripts/smoke_test_plan_execution_runtime.py",
+                        "--json",
+                    ],
+                ),
+            ]
+        )
+    if args.include_runtime_outage_smoke:
+        commands.append(
+            CheckCommand(
+                name="runtime-dependency-outage-smoke",
+                command=[
+                    args.python,
+                    "scripts/smoke_runtime_dependency_outage.py",
+                    "--json",
+                ],
+            )
+        )
+    if args.include_rq_mysql_worker_stability_smoke:
+        commands.append(
+            CheckCommand(
+                name="rq-mysql-worker-stability-smoke",
+                command=[
+                    args.python,
+                    "scripts/smoke_rq_mysql_worker_stability.py",
+                    "--json",
+                ],
+            )
+        )
+    if args.include_test_agent_workflow_rq_mysql_smoke:
+        commands.append(
+            CheckCommand(
+                name="test-agent-workflow-rq-mysql-smoke",
+                command=[
+                    args.python,
+                    "scripts/smoke_test_agent_workflow_rq_mysql.py",
+                    "--json",
+                ],
+            )
+        )
+    if args.include_queue_alert_check:
+        commands.append(
+            CheckCommand(
+                name="queue-alert-check",
+                command=[
+                    args.python,
+                    "scripts/check_queue_alerts.py",
+                    "--json",
+                ],
+            )
+        )
+    if not args.skip_monitoring_check:
+        commands.append(
+            CheckCommand(
+                name="monitoring-metrics-check",
+                command=[
+                    args.python,
+                    "scripts/check_monitoring_metrics.py",
                     "--json",
                 ],
             )
@@ -311,17 +679,39 @@ def build_default_commands(args: argparse.Namespace) -> list[CheckCommand]:
             )
         )
     if not args.skip_queue_check:
-        commands.append(
-            CheckCommand(
-                name="generation-queue-check",
-                command=[
-                    args.python,
-                    "scripts/check_generation_queue.py",
-                    "--json",
-                    "--fail-on-mismatch",
-                ],
-                env=DEFAULT_QUEUE_OBSERVABILITY_ENV,
-            )
+        commands.extend(
+            [
+                CheckCommand(
+                    name="generation-queue-check",
+                    command=[
+                        args.python,
+                        "scripts/check_generation_queue.py",
+                        "--json",
+                        "--fail-on-mismatch",
+                    ],
+                    env=DEFAULT_QUEUE_OBSERVABILITY_ENV,
+                ),
+                CheckCommand(
+                    name="test-plan-execution-queue-check",
+                    command=[
+                        args.python,
+                        "scripts/check_test_plan_execution_queue.py",
+                        "--json",
+                        "--fail-on-mismatch",
+                    ],
+                    env=DEFAULT_TEST_PLAN_EXECUTION_QUEUE_OBSERVABILITY_ENV,
+                ),
+                CheckCommand(
+                    name="test-agent-workflow-queue-check",
+                    command=[
+                        args.python,
+                        "scripts/check_test_agent_workflow_queue.py",
+                        "--json",
+                        "--fail-on-mismatch",
+                    ],
+                    env=DEFAULT_TEST_AGENT_WORKFLOW_QUEUE_OBSERVABILITY_ENV,
+                ),
+            ]
         )
     if not args.skip_diff_check:
         commands.append(

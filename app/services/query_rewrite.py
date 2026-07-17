@@ -38,7 +38,7 @@ def rewrite_knowledge_query(
     )
 
 
-def _unique_terms(values) -> list[str]:
+def _unique_terms(values: list[str]) -> list[str]:
     result: list[str] = []
     seen: set[str] = set()
     for value in values:

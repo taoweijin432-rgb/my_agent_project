@@ -93,4 +93,6 @@ def test_test_plan_prompt_includes_schema_requirements_and_context() -> None:
     assert "REFUND-001" in user_prompt
     assert "POST /api/v1/refunds" in user_prompt
     assert "knowledge/audit/refund.md" in user_prompt
-    assert '"tool_args": {"target": "api"}' in user_prompt
+    assert '"method": "POST"' in user_prompt
+    assert "http tool_args 只能使用 method, path, endpoint_hint, headers, json, expected_status" in user_prompt
+    assert "application/json" in user_prompt

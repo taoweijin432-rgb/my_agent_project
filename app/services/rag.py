@@ -5,7 +5,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from app.core.config import PROJECT_ROOT, Settings
 from app.models.test_case import KnowledgeChunk, KnowledgeDocument, KnowledgeDocumentSummary
@@ -40,6 +40,12 @@ class HashEmbeddingFunction:
 
     def default_space(self) -> str:
         return "cosine"
+
+    def supported_spaces(self) -> list[str]:
+        return ["cosine"]
+
+    def is_legacy(self) -> bool:
+        return False
 
     def __call__(self, input: list[str]) -> list[list[float]]:
         return [self._embed(text) for text in input]
@@ -129,6 +135,12 @@ class SentenceTransformerEmbeddingFunction:
     def default_space(self) -> str:
         return "cosine"
 
+    def supported_spaces(self) -> list[str]:
+        return ["cosine"]
+
+    def is_legacy(self) -> bool:
+        return False
+
     def __call__(self, input: list[str]) -> list[list[float]]:
         embeddings = self.model.encode(
             input,
@@ -180,7 +192,7 @@ class RagService:
                 )
 
         if chunks:
-            self.collection.add(ids=ids, documents=chunks, metadatas=metadatas)
+            self.collection.add(ids=ids, documents=chunks, metadatas=cast(Any, metadatas))
         return len(chunks)
 
     def upsert_document(
@@ -256,9 +268,9 @@ class RagService:
             return []
 
         result = self.collection.query(query_texts=[query], n_results=top_k)
-        documents = result.get("documents", [[]])[0]
-        metadatas = result.get("metadatas", [[]])[0]
-        distances = result.get("distances", [[]])[0]
+        documents = cast(list[list[str]], result.get("documents") or [[]])[0]
+        metadatas = cast(list[list[dict[str, Any]]], result.get("metadatas") or [[]])[0]
+        distances = cast(list[list[float]], result.get("distances") or [[]])[0]
 
         chunks: list[KnowledgeChunk] = []
         for index, content in enumerate(documents):
@@ -291,10 +303,10 @@ class RagService:
         self.collection.add(
             ids=[f"{uuid.uuid4()}" for _ in chunks],
             documents=chunks,
-            metadatas=[
+            metadatas=cast(Any, [
                 _document_metadata(document, index=index, version=version)
                 for index, _ in enumerate(chunks, start=1)
-            ],
+            ]),
         )
         return len(chunks)
 

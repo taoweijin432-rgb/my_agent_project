@@ -144,6 +144,10 @@ TEST_PLAN_SYSTEM_PROMPT = """你是资深测试架构师。你的任务是把需
 def build_test_plan_messages(
     request: TestPlanGenerationRequest,
 ) -> list[dict[str, str]]:
+    json_assertion_example = json.dumps(
+        [{"path": "amount", "operator": "equals", "expected": "100.00"}],
+        ensure_ascii=False,
+    )
     schema = {
         "title": "string",
         "scope": {
@@ -161,7 +165,17 @@ def build_test_plan_messages(
                 "test_types": ["functional"],
                 "priority": "medium",
                 "tool": "http",
-                "tool_args": {"target": "api"},
+                "tool_args": {
+                    "method": "POST",
+                    "path": "/api/v1/example",
+                    "expected_status": 201,
+                    "json_assertions": [
+                        {
+                            "path": "id",
+                            "operator": "exists",
+                        }
+                    ],
+                },
                 "success_criteria": ["string"],
             }
         ],
@@ -183,7 +197,11 @@ def build_test_plan_messages(
 - 每个 high 或 critical 需求至少生成 1 个步骤。
 - 同一需求如果涉及权限、异常、资金、幂等、安全或边界，需要在 test_types 中体现。
 - 能用 API 自动验证的步骤优先选择 http；UI 流程选择 playwright；数据库核验选择 sql；无法自动化的步骤选择 manual。
-- tool_args 只描述结构化目标，例如 requirement_id, target, endpoint_hint，不要生成 shell 命令。
+- http tool_args 只能使用 method, path, endpoint_hint, headers, json, expected_status, json_assertions；不要输出 target, expected_response, expected_status_code 等额外字段。
+- 如果需求包含明确 HTTP 方法、路径或状态码，必须原样复制到 method, path, expected_status；不要把真实路径改成占位符。
+- 如果需求明确要求响应 JSON 字段值，使用 json_assertions，格式为 {json_assertion_example}；只允许 equals 或 exists，不要生成代码表达式。
+- headers 只能包含 Accept, Content-Type, X-Request-ID；Accept 和 Content-Type 如需填写，只能使用完整 media type，例如 application/json，不要输出 application/；不要生成 Authorization、Cookie、Token、API-Key 或任何密钥类 header，认证由测试环境或 adapter 配置提供。
+- 非 http tool_args 只描述结构化目标，例如 requirement_id, target；不要生成 shell 命令。
 - 风险、假设和不测范围必须写入 scope。
 
 目标 JSON Schema 示例：

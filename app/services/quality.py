@@ -1,8 +1,10 @@
 from collections import Counter
+from typing import Literal
 
 from app.models.test_case import (
     GenerateRequest,
     GenerateResponse,
+    TestCase,
     GenerationQualityReport,
     TestCaseType,
 )
@@ -85,7 +87,7 @@ def _average(values: list[int]) -> float:
     return sum(values) / len(values) if values else 0.0
 
 
-def _completeness_rate(cases) -> float:
+def _completeness_rate(cases: list[TestCase]) -> float:
     if not cases:
         return 0.0
     complete = 0
@@ -175,7 +177,7 @@ def _normalize_keyword_text(value: str) -> str:
     return "".join(value.lower().split())
 
 
-def _grade(score: int) -> str:
+def _grade(score: int) -> Literal["excellent", "good", "fair", "poor"]:
     if score >= 85:
         return "excellent"
     if score >= 70:

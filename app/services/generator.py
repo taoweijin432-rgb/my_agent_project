@@ -36,7 +36,7 @@ RagDependency = RagService | Callable[[], RagService]
 class OutputValidationError(RuntimeError):
     """Raised when model output cannot be converted into the expected schema."""
 
-    def __init__(self, message: str, *, usage=None):
+    def __init__(self, message: str, *, usage: GenerationUsage | None = None) -> None:
         super().__init__(message)
         self.usage = usage
 
