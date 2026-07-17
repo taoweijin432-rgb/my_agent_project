@@ -30,6 +30,7 @@ def test_http_tool_adapter_marks_expected_status_as_passed() -> None:
     adapter = HTTPToolAdapter(
         base_url="http://testserver",
         transport=httpx.MockTransport(handler),
+        allowed_headers=("X-Test",),
     )
 
     result = adapter.run(
@@ -46,6 +47,79 @@ def test_http_tool_adapter_marks_expected_status_as_passed() -> None:
     assert result.exit_code == 0
     assert result.command == ["POST", "/api/v1/refunds"]
     assert "returned 201" in result.output_summary
+
+
+def test_http_tool_adapter_applies_json_assertions() -> None:
+    adapter = HTTPToolAdapter(
+        base_url="http://testserver",
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(
+                200,
+                json={"amount": "100.00", "status": "settled"},
+            )
+        ),
+    )
+
+    result = adapter.run(
+        _step(
+            path="/api/v1/refunds/rf_001/reconciliation",
+            expected_status=200,
+            json_assertions=[
+                {"path": "amount", "operator": "equals", "expected": "100.00"},
+                {"path": "status", "operator": "exists"},
+            ],
+        )
+    )
+
+    assert result.status == ToolRunStatus.passed
+    assert result.exit_code == 0
+    assert "JSON assertions passed: 2" in result.output_summary
+
+
+def test_http_tool_adapter_fails_json_assertion_mismatch() -> None:
+    adapter = HTTPToolAdapter(
+        base_url="http://testserver",
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(
+                200,
+                json={"amount": "99.00", "status": "mismatched"},
+            )
+        ),
+    )
+
+    result = adapter.run(
+        _step(
+            path="/api/v1/refunds/rf_001/reconciliation",
+            expected_status=200,
+            json_assertions=[
+                {"path": "amount", "operator": "equals", "expected": "100.00"}
+            ],
+        )
+    )
+
+    assert result.status == ToolRunStatus.failed
+    assert result.exit_code == 1
+    assert 'path amount expected "100.00" but got "99.00"' in result.output_summary
+
+
+def test_http_tool_adapter_rejects_headers_outside_allowlist() -> None:
+    adapter = HTTPToolAdapter(
+        base_url="http://testserver",
+        transport=httpx.MockTransport(lambda _: httpx.Response(200)),
+        allowed_headers=("Content-Type",),
+    )
+
+    result = adapter.run(
+        _step(
+            path="/api/v1/refunds",
+            headers={"Authorization": "Bearer secret-token"},
+        )
+    )
+
+    assert result.status == ToolRunStatus.blocked
+    assert result.exit_code is None
+    assert "not allowed" in result.output_summary
+    assert "Authorization" in result.output_summary
 
 
 def test_http_tool_adapter_writes_response_artifact(tmp_path: Path) -> None:
@@ -129,8 +203,8 @@ def test_http_tool_adapter_parses_method_from_endpoint_hint() -> None:
 def test_pytest_tool_adapter_marks_zero_exit_as_passed() -> None:
     calls = []
 
-    def runner(command: list[str], timeout_seconds: float):
-        calls.append((command, timeout_seconds))
+    def runner(command: list[str], timeout_seconds: float, env: dict[str, str]):
+        calls.append((command, timeout_seconds, env))
         return subprocess.CompletedProcess(command, 0, stdout="1 passed", stderr="")
 
     adapter = PytestToolAdapter(timeout_seconds=12, runner=runner)
@@ -163,7 +237,7 @@ def test_pytest_tool_adapter_writes_output_artifact(tmp_path: Path) -> None:
     store = ToolArtifactStore("artifacts", project_root=tmp_path)
     adapter = PytestToolAdapter(
         artifact_store=store,
-        runner=lambda command, _: subprocess.CompletedProcess(
+        runner=lambda command, _, env: subprocess.CompletedProcess(
             command,
             0,
             stdout="1 passed",
@@ -189,7 +263,7 @@ def test_pytest_tool_adapter_writes_output_artifact(tmp_path: Path) -> None:
 
 def test_pytest_tool_adapter_marks_nonzero_exit_as_failed() -> None:
     adapter = PytestToolAdapter(
-        runner=lambda command, _: subprocess.CompletedProcess(
+        runner=lambda command, _, env: subprocess.CompletedProcess(
             command,
             1,
             stdout="1 failed",
@@ -248,7 +322,7 @@ def test_pytest_tool_adapter_rejects_path_outside_allowlist() -> None:
 
 
 def test_pytest_tool_adapter_marks_timeout_as_blocked() -> None:
-    def runner(command: list[str], timeout_seconds: float):
+    def runner(command: list[str], timeout_seconds: float, env: dict[str, str]):
         raise subprocess.TimeoutExpired(command, timeout_seconds)
 
     adapter = PytestToolAdapter(timeout_seconds=1, runner=runner)
@@ -266,3 +340,32 @@ def test_pytest_tool_adapter_marks_timeout_as_blocked() -> None:
     assert result.status == ToolRunStatus.blocked
     assert result.exit_code is None
     assert "TimeoutExpired" in result.output_summary
+
+
+def test_pytest_tool_adapter_passes_only_allowlisted_environment(monkeypatch) -> None:
+    seen_env = {}
+    monkeypatch.setenv("PATH", "/bin")
+    monkeypatch.setenv("PYTHONPATH", "/tmp/project")
+    monkeypatch.setenv("ZHIPU_API_KEY", "secret-key")
+
+    def runner(command: list[str], timeout_seconds: float, env: dict[str, str]):
+        seen_env.update(env)
+        return subprocess.CompletedProcess(command, 0, stdout="1 passed", stderr="")
+
+    adapter = PytestToolAdapter(
+        env_allowlist=("PATH",),
+        runner=runner,
+    )
+
+    result = adapter.run(
+        PlanStep(
+            id="TP-001",
+            title="运行 pytest",
+            objective="运行指定测试",
+            tool=ToolType.pytest,
+            tool_args={"test_path": "tests/test_tool_adapters.py"},
+        )
+    )
+
+    assert result.status == ToolRunStatus.passed
+    assert seen_env == {"PATH": "/bin"}

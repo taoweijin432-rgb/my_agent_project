@@ -114,6 +114,36 @@ def test_test_plan_execution_job_queue_recovers_stale_jobs_on_startup(tmp_path) 
         queue.shutdown()
 
 
+def test_test_plan_execution_job_queue_recovers_stale_queued_jobs_on_startup(
+    tmp_path,
+) -> None:
+    settings = Settings(
+        generation_job_max_workers=1,
+        generation_job_max_queue_size=2,
+        generation_job_stale_after_seconds=60,
+        generation_history_db_path=str(tmp_path / "app.sqlite3"),
+    )
+    store = JobStore(settings)
+    created = store.create_job(_request())
+    with store._connect() as connection:
+        connection.execute(
+            "UPDATE test_plan_execution_jobs SET created_epoch = 1 WHERE id = ?",
+            (created.id,),
+        )
+        connection.commit()
+
+    queue = InMemoryTestPlanExecutionJobQueue(settings, lambda _: _report(), store=store)
+    try:
+        recovered = store.get_job(created.id)
+        assert recovered is not None
+        assert recovered.status == "failed"
+        assert recovered.error is not None
+        assert recovered.error.code == "test_plan_execution_job_stale"
+        assert "queued or running" in recovered.error.message
+    finally:
+        queue.shutdown()
+
+
 def test_redis_rq_test_plan_execution_job_queue_enqueues_persisted_job(tmp_path) -> None:
     settings = Settings(
         generation_job_max_queue_size=2,

@@ -5,24 +5,34 @@ from pydantic import ValidationError
 from app.api import routes
 from app.core.config import get_settings
 from app.models.test_plan import TestPlan as Plan
+from app.models.test_plan import TestAgentWorkflowJobDetail as WorkflowJobDetail
+from app.models.test_plan import TestAgentWorkflowJobSummary as WorkflowJobSummary
+from app.models.test_plan import TestAgentWorkflowRequest as WorkflowRequest
+from app.models.test_plan import TestAgentWorkflowResult as WorkflowResult
+from app.models.test_plan import TestExecutionReport as ExecutionReport
+from app.models.test_plan import TestExecutionReportExportRequest as ReportExportRequest
 from app.models.test_plan import TestPlanExecutionRequest as PlanExecutionRequest
 from app.models.test_plan import TestPlanExecutionJobDetail as ExecutionJobDetail
 from app.models.test_plan import TestPlanExecutionJobSummary as ExecutionJobSummary
 from app.models.test_plan import TestPlanGenerationRequest as PlanGenerationRequest
 from app.models.test_plan import TestPlanStep as PlanStep
 from app.models.test_plan import TestPlanStepExecutionRequest as StepExecutionRequest
+from app.models.test_plan import TestReportStatus as ReportStatus
 from app.models.test_plan import TestToolType as ToolType
 from app.models.test_plan import ToolRun, ToolRunStatus
 from app.services.llm import LLMError
+from app.services.tool_artifacts import ToolArtifactStore
 
 
 @pytest.fixture(autouse=True)
 def clear_settings_cache() -> None:
     get_settings.cache_clear()
     routes._settings.cache_clear()
+    getattr(routes._test_agent_workflow_job_queue, "cache_clear", lambda: None)()
     yield
     get_settings.cache_clear()
     routes._settings.cache_clear()
+    getattr(routes._test_agent_workflow_job_queue, "cache_clear", lambda: None)()
 
 
 class FakeToolExecutionService:
@@ -76,6 +86,41 @@ class FakeExecutionJobQueue:
         return None
 
 
+class FakeWorkflowJobQueue:
+    def __init__(self):
+        self.submitted = []
+        self.jobs = [
+            WorkflowJobSummary(
+                id="workflow-job-1",
+                status="queued",
+                created_at="2026-07-10T00:00:00+00:00",
+                updated_at="2026-07-10T00:00:00+00:00",
+            )
+        ]
+
+    def submit(self, request: WorkflowRequest) -> WorkflowJobDetail:
+        self.submitted.append(request)
+        return WorkflowJobDetail(
+            **self.jobs[0].model_dump(),
+            request=request,
+        )
+
+    def list_jobs(self, *, limit=20, offset=0, status=None):
+        jobs = self.jobs
+        if status:
+            jobs = [job for job in jobs if job.status == status]
+        return jobs[offset : offset + limit]
+
+    def get_job(self, job_id: str):
+        if job_id == "workflow-job-1":
+            return WorkflowJobDetail(
+                **self.jobs[0].model_dump(),
+                request=_workflow_request(),
+                result=WorkflowResult(plan=_workflow_plan(), report=_execution_report()),
+            )
+        return None
+
+
 class FakePlanGenerator:
     def __init__(self, plan: Plan | None = None, error: Exception | None = None):
         self.plan = plan
@@ -115,6 +160,28 @@ def _plan_execution_request() -> PlanExecutionRequest:
     return PlanExecutionRequest(
         plan=Plan(id="plan-1", title="退款计划", steps=[_http_step()]),
         http_base_url="http://testserver",
+    )
+
+
+def _workflow_plan() -> Plan:
+    return Plan(id="plan-workflow", title="退款工作流计划", steps=[_http_step()])
+
+
+def _workflow_request() -> WorkflowRequest:
+    return WorkflowRequest(
+        generation_request=PlanGenerationRequest(description="退款接口需要覆盖幂等冲突。"),
+        http_base_url="http://testserver",
+    )
+
+
+def _execution_report() -> ExecutionReport:
+    return ExecutionReport(
+        id="report-plan-1",
+        plan_id="plan-1",
+        status=ReportStatus.passed,
+        summary="退款计划: executed 1/1 step(s); passed=1.",
+        tool_runs=[_tool_run("TP-001", ToolType.http, ToolRunStatus.passed)],
+        requirement_coverage={"REFUND-001": True},
     )
 
 
@@ -216,6 +283,36 @@ def test_execute_test_plan_returns_execution_report(monkeypatch) -> None:
     assert service.plans[0].id == "plan-1"
 
 
+def test_export_test_plan_report_as_markdown() -> None:
+    response = routes.export_test_plan_report(
+        ReportExportRequest(
+            report=_execution_report(),
+            format="markdown",
+            filename="refund-report.md",
+        )
+    )
+
+    body = response.body.decode("utf-8")
+
+    assert response.media_type == "text/markdown; charset=utf-8"
+    assert "filename=\"refund-report.md\"" in response.headers["content-disposition"]
+    assert "# Test Execution Report: report-plan-1" in body
+    assert "| REFUND-001 | yes |" in body
+
+
+def test_export_test_plan_report_as_json() -> None:
+    response = routes.export_test_plan_report(
+        ReportExportRequest(report=_execution_report(), format="json")
+    )
+
+    body = response.body.decode("utf-8")
+
+    assert response.media_type == "application/json; charset=utf-8"
+    assert "filename=\"test-execution-report.json\"" in response.headers["content-disposition"]
+    assert '"id": "report-plan-1"' in body
+    assert '"status": "passed"' in body
+
+
 def test_submit_test_plan_execution_job_routes_to_queue(monkeypatch) -> None:
     queue = FakeExecutionJobQueue()
     monkeypatch.setattr(routes, "_test_plan_execution_job_queue", lambda: queue)
@@ -243,6 +340,61 @@ def test_list_and_get_test_plan_execution_jobs(monkeypatch) -> None:
     assert listing.jobs[0].id == "job-1"
     assert detail.id == "job-1"
     assert missing.value.status_code == 404
+
+
+def test_submit_test_agent_workflow_job_routes_to_queue(monkeypatch) -> None:
+    queue = FakeWorkflowJobQueue()
+    monkeypatch.setattr(routes, "_test_agent_workflow_job_queue", lambda: queue)
+
+    job = routes.submit_test_agent_workflow_job(_workflow_request())
+
+    assert job.id == "workflow-job-1"
+    assert job.status == "queued"
+    assert queue.submitted[0].generation_request.description == "退款接口需要覆盖幂等冲突。"
+
+
+def test_list_and_get_test_agent_workflow_jobs(monkeypatch) -> None:
+    queue = FakeWorkflowJobQueue()
+    monkeypatch.setattr(routes, "_test_agent_workflow_job_queue", lambda: queue)
+
+    listing = routes.list_test_agent_workflow_jobs(
+        limit=20,
+        offset=0,
+        status_filter="queued",
+    )
+    detail = routes.get_test_agent_workflow_job("workflow-job-1")
+    with pytest.raises(HTTPException) as missing:
+        routes.get_test_agent_workflow_job("missing")
+
+    assert listing.jobs[0].id == "workflow-job-1"
+    assert detail.id == "workflow-job-1"
+    assert detail.result is not None
+    assert detail.result.plan.id == "plan-workflow"
+    assert missing.value.status_code == 404
+
+
+def test_get_test_plan_artifact_returns_controlled_file_response(monkeypatch, tmp_path) -> None:
+    store = ToolArtifactStore("artifacts", project_root=tmp_path)
+    path = store.write_text(prefix="TP-001", filename="output.txt", content="hello")
+    monkeypatch.setattr(routes, "_tool_artifact_store", lambda: store)
+
+    response = routes.get_test_plan_artifact(path)
+
+    assert response.path == str(tmp_path / path)
+    assert response.filename == "output.txt"
+
+
+def test_get_test_plan_artifact_rejects_missing_or_unsafe_path(monkeypatch, tmp_path) -> None:
+    store = ToolArtifactStore("artifacts", project_root=tmp_path)
+    monkeypatch.setattr(routes, "_tool_artifact_store", lambda: store)
+
+    with pytest.raises(HTTPException) as missing:
+        routes.get_test_plan_artifact("artifacts/missing/output.txt")
+    with pytest.raises(HTTPException) as unsafe:
+        routes.get_test_plan_artifact("secret.txt")
+
+    assert missing.value.status_code == 404
+    assert unsafe.value.status_code == 400
 
 
 def test_execute_test_plan_request_rejects_invalid_base_url() -> None:

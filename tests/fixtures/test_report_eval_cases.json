@@ -1,0 +1,294 @@
+[
+  {
+    "id": "login-report-failed-001",
+    "description": "登录成功通过，但 token 过期检查失败时，报告必须只把失败归因到过期步骤。",
+    "plan": {
+      "id": "plan-login-report",
+      "title": "登录执行计划",
+      "source": "eval/login",
+      "requirements": [
+        {
+          "id": "REQ-001",
+          "title": "登录成功",
+          "description": "验证码正确且未过期时登录成功。",
+          "keywords": ["登录成功", "验证码"],
+          "priority": "high",
+          "source": "eval/login"
+        },
+        {
+          "id": "REQ-002",
+          "title": "Token 过期拒绝",
+          "description": "access token 过期时接口必须拒绝访问。",
+          "keywords": ["token", "过期", "拒绝"],
+          "priority": "high",
+          "source": "eval/login"
+        }
+      ],
+      "scope": {
+        "in_scope": ["登录成功", "Token 过期拒绝"],
+        "out_of_scope": [],
+        "assumptions": ["测试账号和 token fixture 已准备"],
+        "risks": ["鉴权和权限边界需要重点验证"]
+      },
+      "steps": [
+        {
+          "id": "TP-001",
+          "title": "验证登录成功",
+          "objective": "调用登录接口并确认成功响应。",
+          "requirement_ids": ["REQ-001"],
+          "test_types": ["functional"],
+          "priority": "high",
+          "tool": "http",
+          "tool_args": { "method": "POST", "path": "/api/v1/login" },
+          "success_criteria": ["返回 200"]
+        },
+        {
+          "id": "TP-002",
+          "title": "验证 token 过期拒绝",
+          "objective": "使用过期 token 调用 profile 接口。",
+          "requirement_ids": ["REQ-002"],
+          "test_types": ["exception", "permission"],
+          "priority": "high",
+          "tool": "http",
+          "tool_args": { "method": "GET", "path": "/api/v1/profile" },
+          "success_criteria": ["返回 401"]
+        }
+      ]
+    },
+    "tool_runs": [
+      {
+        "id": "run-1",
+        "plan_step_id": "TP-001",
+        "tool": "http",
+        "status": "passed",
+        "command": ["POST", "/api/v1/login"],
+        "exit_code": 0,
+        "output_summary": "HTTP 200 login success",
+        "artifact_paths": ["data/test-artifacts/run-1/response.txt"]
+      },
+      {
+        "id": "run-2",
+        "plan_step_id": "TP-002",
+        "tool": "http",
+        "status": "failed",
+        "command": ["GET", "/api/v1/profile"],
+        "exit_code": 1,
+        "output_summary": "HTTP 401 token expired",
+        "artifact_paths": ["data/test-artifacts/run-2/response.txt"]
+      }
+    ],
+    "expected": {
+      "status": "failed",
+      "covered_requirement_ids": ["REQ-001"],
+      "uncovered_requirement_ids": ["REQ-002"],
+      "defect_step_ids": ["TP-002"],
+      "reason_classifications": {
+        "TP-002": "auth_failure"
+      },
+      "markdown_fragments": [
+        "# Test Execution Report: report-plan-login-report",
+        "| REQ-001 | yes |",
+        "| REQ-002 | no |",
+        "TP-002: HTTP 401 token expired",
+        "data/test-artifacts/run-2/response.txt"
+      ],
+      "forbidden_fragments": ["REQ-003", "passed=2"]
+    }
+  },
+  {
+    "id": "manual-report-incomplete-001",
+    "description": "人工确认步骤被跳过时，报告不能把对应需求计为已覆盖。",
+    "plan": {
+      "id": "plan-manual-risk-report",
+      "title": "高风险变更确认计划",
+      "source": "eval/manual",
+      "requirements": [
+        {
+          "id": "REQ-003",
+          "title": "上线前人工确认",
+          "description": "高风险配置变更上线前需要安全负责人确认。",
+          "keywords": ["人工确认", "高风险", "安全负责人"],
+          "priority": "critical",
+          "source": "eval/manual"
+        }
+      ],
+      "scope": {
+        "in_scope": ["上线前人工确认"],
+        "out_of_scope": [],
+        "assumptions": [],
+        "risks": ["人工确认结果缺失会阻塞验收"]
+      },
+      "steps": [
+        {
+          "id": "TP-003",
+          "title": "确认安全负责人审批",
+          "objective": "检查上线审批记录。",
+          "requirement_ids": ["REQ-003"],
+          "test_types": ["security"],
+          "priority": "critical",
+          "tool": "manual",
+          "tool_args": {},
+          "success_criteria": ["审批记录存在"]
+        }
+      ]
+    },
+    "tool_runs": [
+      {
+        "id": "run-3",
+        "plan_step_id": "TP-003",
+        "tool": "manual",
+        "status": "skipped",
+        "output_summary": "Manual confirmation required"
+      }
+    ],
+    "expected": {
+      "status": "incomplete",
+      "covered_requirement_ids": [],
+      "uncovered_requirement_ids": ["REQ-003"],
+      "defect_step_ids": [],
+      "reason_classifications": {
+        "TP-003": "manual_confirmation_required"
+      },
+      "markdown_fragments": [
+        "`incomplete`",
+        "| REQ-003 | no |",
+        "Manual confirmation required",
+        "No defects recorded."
+      ],
+      "forbidden_fragments": ["| REQ-003 | yes |"]
+    }
+  },
+  {
+    "id": "blocked-report-001",
+    "description": "pytest adapter 未启用导致 blocked 时，报告必须区分 blocked 和 failed。",
+    "plan": {
+      "id": "plan-blocked-report",
+      "title": "自动化执行阻塞计划",
+      "source": "eval/blocked",
+      "requirements": [
+        {
+          "id": "REQ-004",
+          "title": "运行 pytest 回归",
+          "description": "运行指定 pytest 回归用例确认核心流程。",
+          "keywords": ["pytest", "回归"],
+          "priority": "medium",
+          "source": "eval/blocked"
+        }
+      ],
+      "scope": {
+        "in_scope": ["运行 pytest 回归"],
+        "out_of_scope": [],
+        "assumptions": ["pytest adapter 需要显式启用"],
+        "risks": ["执行环境配置缺失会阻塞自动化"]
+      },
+      "steps": [
+        {
+          "id": "TP-004",
+          "title": "运行核心 pytest",
+          "objective": "执行 pytest 回归测试。",
+          "requirement_ids": ["REQ-004"],
+          "test_types": ["functional"],
+          "priority": "medium",
+          "tool": "pytest",
+          "tool_args": { "test_path": "tests/test_login.py" },
+          "success_criteria": ["pytest exit code 为 0"]
+        }
+      ]
+    },
+    "tool_runs": [
+      {
+        "id": "run-4",
+        "plan_step_id": "TP-004",
+        "tool": "pytest",
+        "status": "blocked",
+        "output_summary": "No adapter registered for pytest"
+      }
+    ],
+    "expected": {
+      "status": "blocked",
+      "covered_requirement_ids": [],
+      "uncovered_requirement_ids": ["REQ-004"],
+      "defect_step_ids": [],
+      "reason_classifications": {
+        "TP-004": "adapter_missing"
+      },
+      "markdown_fragments": [
+        "`blocked`",
+        "| REQ-004 | no |",
+        "No adapter registered for pytest",
+        "No defects recorded."
+      ],
+      "forbidden_fragments": ["`failed`", "TP-004: No adapter registered for pytest"]
+    }
+  },
+  {
+    "id": "validation-report-failed-001",
+    "description": "参数校验失败返回 422 时，报告必须归因为 validation_error 并给出参数校验建议。",
+    "plan": {
+      "id": "plan-validation-report",
+      "title": "用户资料校验计划",
+      "source": "eval/profile-validation",
+      "requirements": [
+        {
+          "id": "REQ-005",
+          "title": "更新用户资料",
+          "description": "PUT /api/v1/profile 返回 200；手机号格式错误时必须暴露参数校验错误。",
+          "keywords": ["PUT /api/v1/profile", "手机号", "参数", "校验"],
+          "priority": "high",
+          "source": "eval/profile-validation"
+        }
+      ],
+      "scope": {
+        "in_scope": ["更新用户资料"],
+        "out_of_scope": [],
+        "assumptions": ["测试账号已准备"],
+        "risks": ["参数校验失败会阻断用户资料更新"]
+      },
+      "steps": [
+        {
+          "id": "TP-005",
+          "title": "验证手机号参数校验",
+          "objective": "使用非法手机号调用用户资料更新接口。",
+          "requirement_ids": ["REQ-005"],
+          "test_types": ["exception", "functional"],
+          "priority": "high",
+          "tool": "http",
+          "tool_args": {
+            "method": "PUT",
+            "path": "/api/v1/profile",
+            "expected_status": 200
+          },
+          "success_criteria": ["返回 200 或明确参数校验错误"]
+        }
+      ]
+    },
+    "tool_runs": [
+      {
+        "id": "run-5",
+        "plan_step_id": "TP-005",
+        "tool": "http",
+        "status": "failed",
+        "command": ["PUT", "/api/v1/profile"],
+        "exit_code": 1,
+        "output_summary": "PUT /api/v1/profile returned 422; expected [200].",
+        "artifact_paths": ["data/test-artifacts/run-5/response.txt"]
+      }
+    ],
+    "expected": {
+      "status": "failed",
+      "covered_requirement_ids": [],
+      "uncovered_requirement_ids": ["REQ-005"],
+      "defect_step_ids": ["TP-005"],
+      "reason_classifications": {
+        "TP-005": "validation_error"
+      },
+      "markdown_fragments": [
+        "`failed`",
+        "| REQ-005 | no |",
+        "PUT /api/v1/profile returned 422; expected [200].",
+        "data/test-artifacts/run-5/response.txt"
+      ],
+      "forbidden_fragments": ["| REQ-005 | yes |"]
+    }
+  }
+]

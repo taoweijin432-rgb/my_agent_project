@@ -49,8 +49,42 @@ class TestPlanExecutionJobStatus(str, Enum):
     failed = "failed"
 
 
+class TestAgentWorkflowJobStatus(str, Enum):
+    queued = "queued"
+    running = "running"
+    succeeded = "succeeded"
+    failed = "failed"
+
+
+class TestAgentWorkflowStage(str, Enum):
+    plan_generation = "plan_generation"
+    tool_execution = "tool_execution"
+    report_build = "report_build"
+
+
 HTTPMethod = Literal["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]
+HTTPJSONAssertionOperator = Literal["equals", "exists"]
 _HTTP_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"}
+
+
+class HTTPJSONAssertion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str = Field(min_length=1, max_length=200)
+    operator: HTTPJSONAssertionOperator = "equals"
+    expected: Any = None
+
+    @field_validator("path", mode="before")
+    @classmethod
+    def normalize_path(cls, value: Any) -> str:
+        text = str(value or "").strip()
+        if text.startswith("$."):
+            text = text[2:]
+        elif text.startswith("$"):
+            text = text[1:].lstrip(".")
+        if not text or ".." in text:
+            raise ValueError("json assertion path must be a non-empty dot path")
+        return text
 
 
 class HTTPToolArgs(BaseModel):
@@ -62,6 +96,7 @@ class HTTPToolArgs(BaseModel):
     headers: dict[str, str] = Field(default_factory=dict)
     json_body: Any = Field(default=None, alias="json")
     expected_status: int | list[int] = 200
+    json_assertions: list[HTTPJSONAssertion] = Field(default_factory=list)
 
     @field_validator("method", mode="before")
     @classmethod
@@ -275,7 +310,29 @@ class TestExecutionReport(BaseModel):
     tool_runs: list[ToolRun] = Field(default_factory=list)
     requirement_coverage: dict[str, bool] = Field(default_factory=dict)
     defects: list[str] = Field(default_factory=list)
+    reason_classifications: dict[str, str] = Field(default_factory=dict)
     recommendations: list[str] = Field(default_factory=list)
+
+
+class TestExecutionReportExportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    report: TestExecutionReport
+    format: Literal["markdown", "json"] = "markdown"
+    filename: str | None = Field(default=None, max_length=240)
+
+    @field_validator("format", mode="before")
+    @classmethod
+    def normalize_format(cls, value: Any) -> str:
+        return str(value or "markdown").strip().lower()
+
+    @field_validator("filename", mode="before")
+    @classmethod
+    def normalize_filename(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        filename = str(value).strip()
+        return filename or None
 
 
 class TestPlanStepExecutionRequest(BaseModel):
@@ -300,6 +357,45 @@ class TestPlanExecutionRequest(BaseModel):
     @classmethod
     def normalize_http_base_url(cls, value: Any) -> str:
         return _normalize_http_base_url_value(value)
+
+
+class TestAgentWorkflowRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    generation_request: TestPlanGenerationRequest
+    http_base_url: str = Field(..., min_length=1, max_length=300)
+
+    @field_validator("http_base_url", mode="before")
+    @classmethod
+    def normalize_http_base_url(cls, value: Any) -> str:
+        return _normalize_http_base_url_value(value)
+
+
+class TestAgentWorkflowStageTiming(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: TestAgentWorkflowStage
+    started_at: str
+    finished_at: str
+    duration_ms: float = Field(..., ge=0)
+    status: Literal["succeeded", "failed"] = "succeeded"
+    error_code: str | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class TestAgentWorkflowTiming(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    total_ms: float | None = Field(default=None, ge=0)
+    stages: list[TestAgentWorkflowStageTiming] = Field(default_factory=list)
+
+
+class TestAgentWorkflowResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    plan: TestPlan
+    report: TestExecutionReport
+    timing: TestAgentWorkflowTiming = Field(default_factory=TestAgentWorkflowTiming)
 
 
 def _normalize_http_base_url_value(value: Any) -> str:
@@ -336,5 +432,46 @@ class TestPlanExecutionJobDetail(TestPlanExecutionJobSummary):
 
 class TestPlanExecutionJobListResponse(BaseModel):
     jobs: list[TestPlanExecutionJobSummary]
+    limit: int
+    offset: int
+
+
+class TestAgentWorkflowJobError(BaseModel):
+    code: str
+    message: str
+    stage: TestAgentWorkflowStage | None = None
+    timing: TestAgentWorkflowTiming = Field(default_factory=TestAgentWorkflowTiming)
+
+
+class TestAgentWorkflowJobTiming(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    queue_wait_ms: float | None = Field(default=None, ge=0)
+    job_runtime_ms: float | None = Field(default=None, ge=0)
+    job_total_ms: float | None = Field(default=None, ge=0)
+    workflow_total_ms: float | None = Field(default=None, ge=0)
+    plan_generation_ms: float | None = Field(default=None, ge=0)
+    tool_execution_ms: float | None = Field(default=None, ge=0)
+    report_build_ms: float | None = Field(default=None, ge=0)
+
+
+class TestAgentWorkflowJobSummary(BaseModel):
+    id: str
+    status: TestAgentWorkflowJobStatus
+    created_at: str
+    updated_at: str
+    started_at: str | None = None
+    finished_at: str | None = None
+    error: TestAgentWorkflowJobError | None = None
+    timing: TestAgentWorkflowJobTiming = Field(default_factory=TestAgentWorkflowJobTiming)
+
+
+class TestAgentWorkflowJobDetail(TestAgentWorkflowJobSummary):
+    request: TestAgentWorkflowRequest
+    result: TestAgentWorkflowResult | None = None
+
+
+class TestAgentWorkflowJobListResponse(BaseModel):
+    jobs: list[TestAgentWorkflowJobSummary]
     limit: int
     offset: int

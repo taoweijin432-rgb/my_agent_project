@@ -33,5 +33,59 @@
       "test_types": ["exception"],
       "risk_keywords": []
     }
+  },
+  {
+    "id": "token-auth-plan-001",
+    "description": "开放 API 需要在 access token 过期或缺失时拒绝访问，并返回明确认证错误。",
+    "requirements": [
+      {
+        "id": "AUTH-001",
+        "title": "Token 过期拒绝",
+        "description": "GET /api/v1/profile 在 access token 过期、缺失或无效时必须返回认证失败。",
+        "keywords": ["GET /api/v1/profile", "token", "认证失败"],
+        "priority": "high"
+      }
+    ],
+    "expected": {
+      "tools": ["http"],
+      "test_types": ["exception", "permission"],
+      "risk_keywords": ["鉴权"]
+    }
+  },
+  {
+    "id": "audit-sql-plan-001",
+    "description": "登录审计日志需要写入用户 ID、IP、设备指纹和失败原因，敏感字段不能明文落库。",
+    "requirements": [
+      {
+        "id": "AUDIT-001",
+        "title": "审计字段落库",
+        "description": "数据库 login_audit 表需要记录 user_id、ip、device_fingerprint、failure_reason，敏感字段不能明文保存。",
+        "keywords": ["数据库", "login_audit", "敏感字段"],
+        "priority": "high"
+      }
+    ],
+    "expected": {
+      "tools": ["sql"],
+      "test_types": ["security"],
+      "risk_keywords": []
+    }
+  },
+  {
+    "id": "async-timeout-plan-001",
+    "description": "异步导出任务需要覆盖排队、执行中、超时和重试后的最终失败状态。",
+    "requirements": [
+      {
+        "id": "ASYNC-001",
+        "title": "异步任务状态",
+        "description": "导出任务队列需要展示 queued、running、failed 状态，超时后允许一次重试。",
+        "keywords": ["队列", "超时", "重试"],
+        "priority": "medium"
+      }
+    ],
+    "expected": {
+      "tools": ["manual"],
+      "test_types": ["exception"],
+      "risk_keywords": ["异步", "超时"]
+    }
   }
 ]

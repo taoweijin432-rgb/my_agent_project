@@ -1,6 +1,9 @@
+import json
+import os
 import subprocess
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -25,7 +28,13 @@ class ToolAdapterValidationError(ValueError):
     pass
 
 
-PytestRunner = Callable[[list[str], float], subprocess.CompletedProcess[str]]
+PytestRunner = Callable[[list[str], float, dict[str, str]], subprocess.CompletedProcess[str]]
+
+
+@dataclass(frozen=True)
+class HTTPJSONAssertionResult:
+    passed: bool
+    messages: list[str]
 
 
 class HTTPToolAdapter:
@@ -36,11 +45,17 @@ class HTTPToolAdapter:
         timeout_seconds: float = 10.0,
         transport: httpx.BaseTransport | None = None,
         artifact_store: ToolArtifactStore | None = None,
+        allowed_headers: list[str] | tuple[str, ...] = (
+            "Accept",
+            "Content-Type",
+            "X-Request-ID",
+        ),
     ):
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
         self.transport = transport
         self.artifact_store = artifact_store
+        self.allowed_headers = _normalize_header_allowlist(allowed_headers)
 
     def run(self, step: TestPlanStep) -> ToolRun:
         started_at = _utc_now()
@@ -48,7 +63,9 @@ class HTTPToolAdapter:
             args = _http_args_from_step(step)
             response = self._send(args)
             expected_statuses = args.expected_statuses
-            passed = response.status_code in expected_statuses
+            status_passed = response.status_code in expected_statuses
+            assertion_result = _evaluate_http_json_assertions(args, response)
+            passed = status_passed and assertion_result.passed
             artifact_paths = _http_artifacts(
                 self.artifact_store,
                 step,
@@ -63,9 +80,10 @@ class HTTPToolAdapter:
                 command=_http_command_from_step(step),
                 exit_code=0 if passed else 1,
                 artifact_paths=artifact_paths,
-                output_summary=(
-                    f"{args.resolved_method} {args.resolved_path} returned "
-                    f"{response.status_code}; expected {sorted(expected_statuses)}."
+                output_summary=_http_output_summary(
+                    args,
+                    response,
+                    assertion_result,
                 ),
             )
         except (ToolAdapterValidationError, httpx.HTTPError) as exc:
@@ -88,7 +106,7 @@ class HTTPToolAdapter:
             return client.request(
                 args.resolved_method,
                 args.resolved_path,
-                headers=args.headers,
+                headers=_allowed_http_headers(args.headers, self.allowed_headers),
                 json=args.json_body,
             )
 
@@ -101,6 +119,7 @@ class PytestToolAdapter:
         python_executable: str = sys.executable,
         timeout_seconds: float = 60.0,
         allowed_paths: list[str] | tuple[str, ...] = ("tests",),
+        env_allowlist: list[str] | tuple[str, ...] = ("PATH", "PYTHONPATH"),
         artifact_store: ToolArtifactStore | None = None,
         runner: PytestRunner | None = None,
     ):
@@ -108,6 +127,7 @@ class PytestToolAdapter:
         self.python_executable = python_executable
         self.timeout_seconds = timeout_seconds
         self.allowed_paths = tuple(path.strip().strip("/") for path in allowed_paths if path.strip())
+        self.env = _pytest_env(os.environ, env_allowlist)
         self.artifact_store = artifact_store
         self.runner = runner or self._run_command
 
@@ -121,7 +141,7 @@ class PytestToolAdapter:
                 python_executable=self.python_executable,
                 allowed_paths=self.allowed_paths,
             )
-            result = self.runner(command, self.timeout_seconds)
+            result = self.runner(command, self.timeout_seconds, self.env)
             passed = result.returncode == 0
             artifact_paths = _pytest_artifacts(self.artifact_store, step, result)
             return _tool_run(
@@ -149,10 +169,12 @@ class PytestToolAdapter:
         self,
         command: list[str],
         timeout_seconds: float,
+        env: dict[str, str],
     ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             command,
             cwd=self.project_root,
+            env=env,
             text=True,
             capture_output=True,
             timeout=timeout_seconds,
@@ -203,6 +225,103 @@ def _http_command_from_step(step: TestPlanStep) -> list[str]:
     return [args.resolved_method, args.resolved_path]
 
 
+def _normalize_header_allowlist(headers: list[str] | tuple[str, ...]) -> set[str]:
+    return {header.strip().lower() for header in headers if header.strip()}
+
+
+def _allowed_http_headers(
+    headers: dict[str, str],
+    allowed_headers: set[str],
+) -> dict[str, str]:
+    blocked = [
+        header
+        for header in headers
+        if header.strip().lower() not in allowed_headers
+    ]
+    if blocked:
+        names = ", ".join(sorted(blocked))
+        allowed = ", ".join(sorted(allowed_headers)) or "none"
+        raise ToolAdapterValidationError(
+            f"HTTP header(s) not allowed: {names}. Allowed headers: {allowed}."
+        )
+    return {header.strip(): value for header, value in headers.items()}
+
+
+def _evaluate_http_json_assertions(
+    args: HTTPToolArgs,
+    response: httpx.Response,
+) -> HTTPJSONAssertionResult:
+    if not args.json_assertions:
+        return HTTPJSONAssertionResult(passed=True, messages=[])
+
+    try:
+        body = response.json()
+    except ValueError:
+        return HTTPJSONAssertionResult(
+            passed=False,
+            messages=["JSON assertion failed: response body is not valid JSON."],
+        )
+
+    messages: list[str] = []
+    for assertion in args.json_assertions:
+        actual = _json_path_value(body, assertion.path)
+        if assertion.operator == "exists":
+            if actual is _MISSING:
+                messages.append(f"JSON assertion failed: path {assertion.path} is missing.")
+            continue
+        if actual is _MISSING:
+            messages.append(f"JSON assertion failed: path {assertion.path} is missing.")
+            continue
+        if actual != assertion.expected:
+            messages.append(
+                "JSON assertion failed: "
+                f"path {assertion.path} expected {_format_json_value(assertion.expected)} "
+                f"but got {_format_json_value(actual)}."
+            )
+    return HTTPJSONAssertionResult(passed=not messages, messages=messages)
+
+
+_MISSING = object()
+
+
+def _json_path_value(body: Any, path: str) -> Any:
+    current = body
+    for part in path.split("."):
+        if isinstance(current, dict) and part in current:
+            current = current[part]
+            continue
+        if isinstance(current, list) and part.isdigit():
+            index = int(part)
+            if 0 <= index < len(current):
+                current = current[index]
+                continue
+        return _MISSING
+    return current
+
+
+def _format_json_value(value: Any) -> str:
+    try:
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    except TypeError:
+        return repr(value)
+
+
+def _http_output_summary(
+    args: HTTPToolArgs,
+    response: httpx.Response,
+    assertion_result: HTTPJSONAssertionResult,
+) -> str:
+    summary = (
+        f"{args.resolved_method} {args.resolved_path} returned "
+        f"{response.status_code}; expected {sorted(args.expected_statuses)}."
+    )
+    if not args.json_assertions:
+        return summary
+    if assertion_result.passed:
+        return f"{summary} JSON assertions passed: {len(args.json_assertions)}."
+    return " ".join([summary, *assertion_result.messages])
+
+
 def _pytest_command_from_step(
     step: TestPlanStep,
     *,
@@ -237,6 +356,17 @@ def _pytest_args_from_step(step: TestPlanStep) -> PytestToolArgs:
         return PytestToolArgs.model_validate(step.tool_args)
     except ValidationError as exc:
         raise ToolAdapterValidationError(str(exc)) from exc
+
+
+def _pytest_env(
+    source_env: Mapping[str, str],
+    env_allowlist: list[str] | tuple[str, ...],
+) -> dict[str, str]:
+    return {
+        name: source_env[name]
+        for name in env_allowlist
+        if name in source_env
+    }
 
 
 def _safe_pytest_path(

@@ -9,35 +9,39 @@ from uuid import uuid4
 
 from app.core.config import Settings
 from app.models.test_plan import (
-    TestExecutionReport,
-    TestPlanExecutionJobDetail,
-    TestPlanExecutionJobError,
-    TestPlanExecutionJobStatus,
-    TestPlanExecutionJobSummary,
-    TestPlanExecutionRequest,
+    TestAgentWorkflowJobDetail,
+    TestAgentWorkflowJobError,
+    TestAgentWorkflowJobStatus,
+    TestAgentWorkflowJobSummary,
+    TestAgentWorkflowRequest,
+    TestAgentWorkflowResult,
 )
 from app.services.stores import (
-    TestPlanExecutionJobRepository,
-    create_test_plan_execution_job_store,
+    TestAgentWorkflowJobRepository,
+    create_test_agent_workflow_job_store,
+)
+from app.services.test_agent_workflow import TestAgentWorkflowExecutionError
+from app.services.test_agent_workflow_metrics import (
+    build_test_agent_workflow_job_timing,
 )
 
 
-TestPlanExecutionRunner = Callable[[TestPlanExecutionRequest], TestExecutionReport]
+TestAgentWorkflowRunner = Callable[[TestAgentWorkflowRequest], TestAgentWorkflowResult]
 
 
-class TestPlanExecutionJobQueueFullError(RuntimeError):
+class TestAgentWorkflowJobQueueFullError(RuntimeError):
     pass
 
 
-class TestPlanExecutionJobQueueUnavailableError(RuntimeError):
+class TestAgentWorkflowJobQueueUnavailableError(RuntimeError):
     pass
 
 
-class TestPlanExecutionJobQueue(Protocol):
-    def submit(self, request: TestPlanExecutionRequest) -> TestPlanExecutionJobDetail:
+class TestAgentWorkflowJobQueue(Protocol):
+    def submit(self, request: TestAgentWorkflowRequest) -> TestAgentWorkflowJobDetail:
         pass
 
-    def get_job(self, job_id: str) -> TestPlanExecutionJobDetail | None:
+    def get_job(self, job_id: str) -> TestAgentWorkflowJobDetail | None:
         pass
 
     def list_jobs(
@@ -46,14 +50,14 @@ class TestPlanExecutionJobQueue(Protocol):
         limit: int = 20,
         offset: int = 0,
         status: str | None = None,
-    ) -> list[TestPlanExecutionJobSummary]:
+    ) -> list[TestAgentWorkflowJobSummary]:
         pass
 
 
 @dataclass
-class _TestPlanExecutionJobRecord:
+class _TestAgentWorkflowJobRecord:
     id: str
-    request: TestPlanExecutionRequest
+    request: TestAgentWorkflowRequest
     status: str
     created_at: str
     updated_at: str
@@ -61,16 +65,16 @@ class _TestPlanExecutionJobRecord:
     started_at: str | None = None
     finished_at: str | None = None
     finished_epoch: float | None = None
-    report: TestExecutionReport | None = None
-    error: TestPlanExecutionJobError | None = None
+    result: TestAgentWorkflowResult | None = None
+    error: TestAgentWorkflowJobError | None = None
 
 
-class InMemoryTestPlanExecutionJobQueue:
+class InMemoryTestAgentWorkflowJobQueue:
     def __init__(
         self,
         settings: Settings,
-        runner: TestPlanExecutionRunner,
-        store: TestPlanExecutionJobRepository | None = None,
+        runner: TestAgentWorkflowRunner,
+        store: TestAgentWorkflowJobRepository | None = None,
     ) -> None:
         self.max_queue_size = settings.generation_job_max_queue_size
         self.retention_seconds = settings.generation_job_retention_seconds
@@ -81,13 +85,13 @@ class InMemoryTestPlanExecutionJobQueue:
                 stale_after_seconds=settings.generation_job_stale_after_seconds
             )
         self._queue: queue.Queue[str | None] = queue.Queue(maxsize=self.max_queue_size)
-        self._jobs: dict[str, _TestPlanExecutionJobRecord] = {}
+        self._jobs: dict[str, _TestAgentWorkflowJobRecord] = {}
         self._lock = threading.Lock()
         self._shutdown = False
         self._workers = [
             threading.Thread(
                 target=self._worker_loop,
-                name=f"test-plan-execution-worker-{index}",
+                name=f"test-agent-workflow-worker-{index}",
                 daemon=True,
             )
             for index in range(1, settings.generation_job_max_workers + 1)
@@ -95,11 +99,11 @@ class InMemoryTestPlanExecutionJobQueue:
         for worker in self._workers:
             worker.start()
 
-    def submit(self, request: TestPlanExecutionRequest) -> TestPlanExecutionJobDetail:
+    def submit(self, request: TestAgentWorkflowRequest) -> TestAgentWorkflowJobDetail:
         with self._lock:
             if self._shutdown:
-                raise TestPlanExecutionJobQueueFullError(
-                    "Test plan execution queue is shutting down."
+                raise TestAgentWorkflowJobQueueFullError(
+                    "Test agent workflow queue is shutting down."
                 )
             self._cleanup_expired_locked()
             if self.store:
@@ -107,7 +111,7 @@ class InMemoryTestPlanExecutionJobQueue:
                 job = _record_from_detail(detail)
             else:
                 now = _utc_now()
-                job = _TestPlanExecutionJobRecord(
+                job = _TestAgentWorkflowJobRecord(
                     id=uuid4().hex,
                     request=request,
                     status="queued",
@@ -123,17 +127,17 @@ class InMemoryTestPlanExecutionJobQueue:
                 if self.store:
                     self.store.mark_failed(
                         job.id,
-                        TestPlanExecutionJobError(
+                        TestAgentWorkflowJobError(
                             code="queue_full",
-                            message="Test plan execution queue is full. Retry later.",
+                            message="Test agent workflow queue is full. Retry later.",
                         ),
                     )
-                raise TestPlanExecutionJobQueueFullError(
-                    "Test plan execution queue is full. Retry later."
+                raise TestAgentWorkflowJobQueueFullError(
+                    "Test agent workflow queue is full. Retry later."
                 ) from exc
             return _detail_from_record(job)
 
-    def get_job(self, job_id: str) -> TestPlanExecutionJobDetail | None:
+    def get_job(self, job_id: str) -> TestAgentWorkflowJobDetail | None:
         if self.store:
             return self.store.get_job(job_id)
         with self._lock:
@@ -149,7 +153,7 @@ class InMemoryTestPlanExecutionJobQueue:
         limit: int = 20,
         offset: int = 0,
         status: str | None = None,
-    ) -> list[TestPlanExecutionJobSummary]:
+    ) -> list[TestAgentWorkflowJobSummary]:
         if self.store:
             return self.store.list_jobs(limit=limit, offset=offset, status=status)
         with self._lock:
@@ -185,19 +189,22 @@ class InMemoryTestPlanExecutionJobQueue:
         if request is None:
             return
         try:
-            report = self._runner(request)
+            result = self._runner(request)
+        except TestAgentWorkflowExecutionError as exc:
+            self._mark_failed(job_id, _error_from_execution_error(exc))
+            return
         except Exception as exc:
             self._mark_failed(
                 job_id,
-                TestPlanExecutionJobError(
-                    code="execution_failed",
+                TestAgentWorkflowJobError(
+                    code="workflow_failed",
                     message=f"{type(exc).__name__}: {exc}",
                 ),
             )
             return
-        self._mark_succeeded(job_id, report)
+        self._mark_succeeded(job_id, result)
 
-    def _mark_running(self, job_id: str) -> TestPlanExecutionRequest | None:
+    def _mark_running(self, job_id: str) -> TestAgentWorkflowRequest | None:
         now = _utc_now()
         with self._lock:
             job = self._jobs.get(job_id)
@@ -210,24 +217,24 @@ class InMemoryTestPlanExecutionJobQueue:
                 self.store.mark_running(job_id)
             return job.request
 
-    def _mark_succeeded(self, job_id: str, report: TestExecutionReport) -> None:
+    def _mark_succeeded(self, job_id: str, result: TestAgentWorkflowResult) -> None:
         now = _utc_now()
         with self._lock:
             job = self._jobs.get(job_id)
             if job is None:
                 return
             job.status = "succeeded"
-            job.report = report
+            job.result = result
             job.finished_at = now
             job.finished_epoch = time.time()
             job.updated_at = now
             if self.store:
-                self.store.mark_succeeded(job_id, report)
+                self.store.mark_succeeded(job_id, result)
 
     def _mark_failed(
         self,
         job_id: str,
-        error: TestPlanExecutionJobError,
+        error: TestAgentWorkflowJobError,
     ) -> None:
         now = _utc_now()
         with self._lock:
@@ -255,15 +262,15 @@ class InMemoryTestPlanExecutionJobQueue:
             del self._jobs[job_id]
 
 
-class RedisRQTestPlanExecutionJobQueue:
+class RedisRQTestAgentWorkflowJobQueue:
     def __init__(
         self,
         settings: Settings,
-        store: TestPlanExecutionJobRepository | None = None,
+        store: TestAgentWorkflowJobRepository | None = None,
     ) -> None:
         self.settings = settings
         self.max_queue_size = settings.generation_job_max_queue_size
-        self.store = store or create_test_plan_execution_job_store(settings)
+        self.store = store or create_test_agent_workflow_job_store(settings)
         self.store.fail_stale_active_jobs(
             stale_after_seconds=settings.generation_job_stale_after_seconds
         )
@@ -272,7 +279,7 @@ class RedisRQTestPlanExecutionJobQueue:
             from redis.exceptions import RedisError
             from rq import Queue
         except ModuleNotFoundError as exc:
-            raise TestPlanExecutionJobQueueUnavailableError(
+            raise TestAgentWorkflowJobQueueUnavailableError(
                 "Redis/RQ dependencies are not installed. Install redis and rq."
             ) from exc
 
@@ -284,16 +291,16 @@ class RedisRQTestPlanExecutionJobQueue:
             default_timeout=settings.rq_job_timeout_seconds,
         )
 
-    def submit(self, request: TestPlanExecutionRequest) -> TestPlanExecutionJobDetail:
+    def submit(self, request: TestAgentWorkflowRequest) -> TestAgentWorkflowJobDetail:
         if self.store.count_active_jobs() >= self.max_queue_size:
-            raise TestPlanExecutionJobQueueFullError(
-                "Test plan execution queue is full. Retry later."
+            raise TestAgentWorkflowJobQueueFullError(
+                "Test agent workflow queue is full. Retry later."
             )
 
         job = self.store.create_job(request)
         try:
             self._queue.enqueue_call(
-                func="app.workers.test_plan_execution_rq.run_test_plan_execution_job",
+                func="app.workers.test_agent_workflow_rq.run_test_agent_workflow_job",
                 args=(job.id,),
                 job_id=job.id,
                 timeout=self.settings.rq_job_timeout_seconds,
@@ -303,30 +310,30 @@ class RedisRQTestPlanExecutionJobQueue:
         except self._redis_error_type as exc:
             self.store.mark_failed(
                 job.id,
-                TestPlanExecutionJobError(
+                TestAgentWorkflowJobError(
                     code="queue_unavailable",
                     message=str(exc),
                 ),
             )
-            raise TestPlanExecutionJobQueueUnavailableError(
-                "Test plan execution queue is unavailable. Retry later."
+            raise TestAgentWorkflowJobQueueUnavailableError(
+                "Test agent workflow queue is unavailable. Retry later."
             ) from exc
         except Exception as exc:
             self.store.mark_failed(
                 job.id,
-                TestPlanExecutionJobError(
+                TestAgentWorkflowJobError(
                     code="queue_submit_failed",
                     message=str(exc) or exc.__class__.__name__,
                 ),
             )
-            raise TestPlanExecutionJobQueueUnavailableError(
-                "Test plan execution queue submit failed. Retry later."
+            raise TestAgentWorkflowJobQueueUnavailableError(
+                "Test agent workflow queue submit failed. Retry later."
             ) from exc
 
         persisted = self.store.get_job(job.id)
         return persisted or job
 
-    def get_job(self, job_id: str) -> TestPlanExecutionJobDetail | None:
+    def get_job(self, job_id: str) -> TestAgentWorkflowJobDetail | None:
         return self.store.get_job(job_id)
 
     def list_jobs(
@@ -335,36 +342,44 @@ class RedisRQTestPlanExecutionJobQueue:
         limit: int = 20,
         offset: int = 0,
         status: str | None = None,
-    ) -> list[TestPlanExecutionJobSummary]:
+    ) -> list[TestAgentWorkflowJobSummary]:
         return self.store.list_jobs(limit=limit, offset=offset, status=status)
 
 
 def _summary_from_record(
-    record: _TestPlanExecutionJobRecord,
-) -> TestPlanExecutionJobSummary:
-    return TestPlanExecutionJobSummary(
+    record: _TestAgentWorkflowJobRecord,
+) -> TestAgentWorkflowJobSummary:
+    return TestAgentWorkflowJobSummary(
         id=record.id,
-        status=TestPlanExecutionJobStatus(record.status),
+        status=TestAgentWorkflowJobStatus(record.status),
         created_at=record.created_at,
         updated_at=record.updated_at,
         started_at=record.started_at,
         finished_at=record.finished_at,
         error=record.error,
+        timing=build_test_agent_workflow_job_timing(
+            created_at=record.created_at,
+            started_at=record.started_at,
+            finished_at=record.finished_at,
+            result=record.result,
+        ),
     )
 
 
 def _detail_from_record(
-    record: _TestPlanExecutionJobRecord,
-) -> TestPlanExecutionJobDetail:
-    return TestPlanExecutionJobDetail(
+    record: _TestAgentWorkflowJobRecord,
+) -> TestAgentWorkflowJobDetail:
+    return TestAgentWorkflowJobDetail(
         **_summary_from_record(record).model_dump(),
         request=record.request,
-        report=record.report,
+        result=record.result,
     )
 
 
-def _record_from_detail(detail: TestPlanExecutionJobDetail) -> _TestPlanExecutionJobRecord:
-    return _TestPlanExecutionJobRecord(
+def _record_from_detail(
+    detail: TestAgentWorkflowJobDetail,
+) -> _TestAgentWorkflowJobRecord:
+    return _TestAgentWorkflowJobRecord(
         id=detail.id,
         request=detail.request,
         status=detail.status,
@@ -373,10 +388,21 @@ def _record_from_detail(detail: TestPlanExecutionJobDetail) -> _TestPlanExecutio
         created_epoch=time.time(),
         started_at=detail.started_at,
         finished_at=detail.finished_at,
-        report=detail.report,
+        result=detail.result,
         error=detail.error,
     )
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _error_from_execution_error(
+    exc: TestAgentWorkflowExecutionError,
+) -> TestAgentWorkflowJobError:
+    return TestAgentWorkflowJobError(
+        code=exc.error_code,
+        message=str(exc),
+        stage=exc.stage,
+        timing=exc.timing,
+    )

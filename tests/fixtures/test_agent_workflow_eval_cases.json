@@ -1,0 +1,842 @@
+[
+  {
+    "id": "refund-requirements-to-report-001",
+    "description": "从退款业务需求生成测试计划，执行 HTTP 工具后汇总失败审计报告。",
+    "source": "eval/workflow/refund",
+    "requirements": [
+      {
+        "id": "REQ-WORKFLOW-REFUND-001",
+        "title": "创建退款 API",
+        "description": "POST /api/v1/refunds 返回 201 并生成退款编号。",
+        "keywords": ["POST /api/v1/refunds", "201", "refund_id"],
+        "priority": "critical",
+        "source": "eval/workflow/refund"
+      },
+      {
+        "id": "REQ-WORKFLOW-REFUND-002",
+        "title": "退款审计查询 API",
+        "description": "GET /api/v1/refunds/rf_001/audit 返回 200；失败时应暴露审计不可用。",
+        "keywords": ["GET /api/v1/refunds/rf_001/audit", "200", "audit"],
+        "priority": "high",
+        "source": "eval/workflow/refund"
+      }
+    ],
+    "http_responses": [
+      {
+        "method": "POST",
+        "path": "/api/v1/refunds",
+        "status": 201,
+        "json": { "refund_id": "rf_001", "status": "created" }
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/refunds/rf_001/audit",
+        "status": 503,
+        "json": { "error": "audit store unavailable" }
+      }
+    ],
+    "expected": {
+      "plan_tools": ["http"],
+      "plan_test_types": ["exception", "functional"],
+      "generated_step_count": 2,
+      "risk_keywords": ["资金相关路径需要覆盖异常和审计"],
+      "report_status": "failed",
+      "tool_run_statuses": {
+        "TP-001": "passed",
+        "TP-002": "failed"
+      },
+      "covered_requirement_ids": ["REQ-WORKFLOW-REFUND-001"],
+      "uncovered_requirement_ids": ["REQ-WORKFLOW-REFUND-002"],
+      "defect_step_ids": ["TP-002"],
+      "reason_classifications": {
+        "TP-002": "upstream_unavailable"
+      },
+      "output_fragments": [
+        "POST /api/v1/refunds returned 201; expected [201].",
+        "GET /api/v1/refunds/rf_001/audit returned 503; expected [200]."
+      ]
+    }
+  },
+  {
+    "id": "auth-permission-workflow-001",
+    "description": "从权限需求生成测试计划，执行 HTTP 工具后识别越权访问未被拒绝的缺陷。",
+    "source": "eval/workflow/auth-permission",
+    "requirements": [
+      {
+        "id": "REQ-WORKFLOW-AUTH-001",
+        "title": "管理员接口权限校验",
+        "description": "无权限角色 GET /api/v1/admin/users 应返回 403，越权访问必须被拒绝。",
+        "keywords": ["GET /api/v1/admin/users", "403", "权限", "越权", "拒绝"],
+        "priority": "critical",
+        "source": "eval/workflow/auth-permission"
+      }
+    ],
+    "http_responses": [
+      {
+        "method": "GET",
+        "path": "/api/v1/admin/users",
+        "status": 200,
+        "json": { "users": [{ "id": "user_001" }] }
+      }
+    ],
+    "expected": {
+      "plan_tools": ["http"],
+      "plan_test_types": ["exception", "functional", "permission", "security"],
+      "generated_step_count": 1,
+      "risk_keywords": ["鉴权和权限边界需要重点验证"],
+      "report_status": "failed",
+      "tool_run_statuses": {
+        "TP-001": "failed"
+      },
+      "covered_requirement_ids": [],
+      "uncovered_requirement_ids": ["REQ-WORKFLOW-AUTH-001"],
+      "defect_step_ids": ["TP-001"],
+      "reason_classifications": {
+        "TP-001": "permission_not_enforced"
+      },
+      "output_fragments": [
+        "GET /api/v1/admin/users returned 200; expected [403]."
+      ]
+    }
+  },
+  {
+    "id": "async-queue-workflow-001",
+    "description": "从异步任务需求生成测试计划，执行 HTTP 工具后识别队列状态查询超时缺陷。",
+    "source": "eval/workflow/async-queue",
+    "requirements": [
+      {
+        "id": "REQ-WORKFLOW-ASYNC-001",
+        "title": "提交异步生成任务",
+        "description": "POST /api/v1/generation-jobs 返回 202 并进入队列。",
+        "keywords": ["POST /api/v1/generation-jobs", "202", "队列"],
+        "priority": "high",
+        "source": "eval/workflow/async-queue"
+      },
+      {
+        "id": "REQ-WORKFLOW-ASYNC-002",
+        "title": "查询异步任务状态",
+        "description": "GET /api/v1/generation-jobs/job_001 返回 200；异步状态查询超时时必须暴露失败原因。",
+        "keywords": ["GET /api/v1/generation-jobs/job_001", "200", "异步", "超时", "重试"],
+        "priority": "high",
+        "source": "eval/workflow/async-queue"
+      }
+    ],
+    "http_responses": [
+      {
+        "method": "POST",
+        "path": "/api/v1/generation-jobs",
+        "status": 202,
+        "json": { "job_id": "job_001", "status": "queued" }
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/generation-jobs/job_001",
+        "status": 504,
+        "json": { "error": "queue status timeout" }
+      }
+    ],
+    "expected": {
+      "plan_tools": ["http"],
+      "plan_test_types": ["exception", "functional"],
+      "generated_step_count": 2,
+      "risk_keywords": ["异步状态、重试和超时需要覆盖"],
+      "report_status": "failed",
+      "tool_run_statuses": {
+        "TP-001": "passed",
+        "TP-002": "failed"
+      },
+      "covered_requirement_ids": ["REQ-WORKFLOW-ASYNC-001"],
+      "uncovered_requirement_ids": ["REQ-WORKFLOW-ASYNC-002"],
+      "defect_step_ids": ["TP-002"],
+      "reason_classifications": {
+        "TP-002": "timeout"
+      },
+      "output_fragments": [
+        "POST /api/v1/generation-jobs returned 202; expected [202].",
+        "GET /api/v1/generation-jobs/job_001 returned 504; expected [200]."
+      ]
+    }
+  },
+  {
+    "id": "payment-reconciliation-workflow-001",
+    "description": "从支付对账需求生成测试计划，执行 HTTP 工具后识别幂等冲突导致的对账失败。",
+    "source": "eval/workflow/payment-reconciliation",
+    "requirements": [
+      {
+        "id": "REQ-WORKFLOW-PAYMENT-001",
+        "title": "创建支付订单 API",
+        "description": "POST /api/v1/payments 返回 201 并记录金额 100.00。",
+        "keywords": ["POST /api/v1/payments", "201", "金额", "支付"],
+        "priority": "critical",
+        "source": "eval/workflow/payment-reconciliation"
+      },
+      {
+        "id": "REQ-WORKFLOW-PAYMENT-002",
+        "title": "支付对账查询 API",
+        "description": "GET /api/v1/payments/pay_001/reconciliation 返回 200；金额不一致、重复回调或幂等冲突必须暴露异常。",
+        "keywords": [
+          "GET /api/v1/payments/pay_001/reconciliation",
+          "200",
+          "金额",
+          "重复",
+          "幂等",
+          "冲突"
+        ],
+        "priority": "high",
+        "source": "eval/workflow/payment-reconciliation"
+      }
+    ],
+    "http_responses": [
+      {
+        "method": "POST",
+        "path": "/api/v1/payments",
+        "status": 201,
+        "json": { "payment_id": "pay_001", "amount": "100.00", "status": "created" }
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/payments/pay_001/reconciliation",
+        "status": 409,
+        "json": { "error": "duplicate callback conflict", "payment_id": "pay_001" }
+      }
+    ],
+    "expected": {
+      "plan_tools": ["http"],
+      "plan_test_types": ["exception", "functional"],
+      "generated_step_count": 2,
+      "risk_keywords": [
+        "重复提交和幂等冲突需要覆盖",
+        "资金相关路径需要覆盖异常和审计"
+      ],
+      "report_status": "failed",
+      "tool_run_statuses": {
+        "TP-001": "passed",
+        "TP-002": "failed"
+      },
+      "covered_requirement_ids": ["REQ-WORKFLOW-PAYMENT-001"],
+      "uncovered_requirement_ids": ["REQ-WORKFLOW-PAYMENT-002"],
+      "defect_step_ids": ["TP-002"],
+      "reason_classifications": {
+        "TP-002": "conflict"
+      },
+      "output_fragments": [
+        "POST /api/v1/payments returned 201; expected [201].",
+        "GET /api/v1/payments/pay_001/reconciliation returned 409; expected [200]."
+      ]
+    }
+  },
+  {
+    "id": "inventory-reservation-workflow-001",
+    "description": "从库存预占需求生成测试计划，执行 HTTP 工具后识别库存锁定状态异常。",
+    "source": "eval/workflow/inventory-reservation",
+    "requirements": [
+      {
+        "id": "REQ-WORKFLOW-INVENTORY-001",
+        "title": "创建库存预占 API",
+        "description": "POST /api/v1/inventory/reservations 返回 201 并锁定库存。",
+        "keywords": ["POST /api/v1/inventory/reservations", "201", "锁定库存"],
+        "priority": "critical",
+        "source": "eval/workflow/inventory-reservation"
+      },
+      {
+        "id": "REQ-WORKFLOW-INVENTORY-002",
+        "title": "查询库存预占状态 API",
+        "description": "GET /api/v1/inventory/reservations/res_001 返回 200；库存不足或锁定超时必须暴露异常。",
+        "keywords": [
+          "GET /api/v1/inventory/reservations/res_001",
+          "200",
+          "库存不足",
+          "锁定超时",
+          "异常"
+        ],
+        "priority": "high",
+        "source": "eval/workflow/inventory-reservation"
+      }
+    ],
+    "http_responses": [
+      {
+        "method": "POST",
+        "path": "/api/v1/inventory/reservations",
+        "status": 201,
+        "json": { "reservation_id": "res_001", "status": "locked" }
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/inventory/reservations/res_001",
+        "status": 409,
+        "json": { "error": "inventory lock expired", "reservation_id": "res_001" }
+      }
+    ],
+    "expected": {
+      "plan_tools": ["http"],
+      "plan_test_types": ["exception", "functional"],
+      "generated_step_count": 2,
+      "risk_keywords": ["异步状态、重试和超时需要覆盖"],
+      "report_status": "failed",
+      "tool_run_statuses": {
+        "TP-001": "passed",
+        "TP-002": "failed"
+      },
+      "covered_requirement_ids": ["REQ-WORKFLOW-INVENTORY-001"],
+      "uncovered_requirement_ids": ["REQ-WORKFLOW-INVENTORY-002"],
+      "defect_step_ids": ["TP-002"],
+      "reason_classifications": {
+        "TP-002": "conflict"
+      },
+      "output_fragments": [
+        "POST /api/v1/inventory/reservations returned 201; expected [201].",
+        "GET /api/v1/inventory/reservations/res_001 returned 409; expected [200]."
+      ]
+    }
+  },
+  {
+    "id": "notification-retry-workflow-001",
+    "description": "从通知发送需求生成测试计划，执行 HTTP 工具后识别通知重试失败。",
+    "source": "eval/workflow/notification-retry",
+    "requirements": [
+      {
+        "id": "REQ-WORKFLOW-NOTIFY-001",
+        "title": "提交通知发送 API",
+        "description": "POST /api/v1/notifications 返回 202 并进入通知队列。",
+        "keywords": ["POST /api/v1/notifications", "202", "通知队列"],
+        "priority": "high",
+        "source": "eval/workflow/notification-retry"
+      },
+      {
+        "id": "REQ-WORKFLOW-NOTIFY-002",
+        "title": "查询通知发送状态 API",
+        "description": "GET /api/v1/notifications/msg_001 返回 200；重试失败或超时必须暴露异常。",
+        "keywords": [
+          "GET /api/v1/notifications/msg_001",
+          "200",
+          "重试",
+          "失败",
+          "超时"
+        ],
+        "priority": "high",
+        "source": "eval/workflow/notification-retry"
+      }
+    ],
+    "http_responses": [
+      {
+        "method": "POST",
+        "path": "/api/v1/notifications",
+        "status": 202,
+        "json": { "message_id": "msg_001", "status": "queued" }
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/notifications/msg_001",
+        "status": 500,
+        "json": { "error": "provider retry exhausted", "message_id": "msg_001" }
+      }
+    ],
+    "expected": {
+      "plan_tools": ["http"],
+      "plan_test_types": ["exception", "functional"],
+      "generated_step_count": 2,
+      "risk_keywords": ["异步状态、重试和超时需要覆盖"],
+      "report_status": "failed",
+      "tool_run_statuses": {
+        "TP-001": "passed",
+        "TP-002": "failed"
+      },
+      "covered_requirement_ids": ["REQ-WORKFLOW-NOTIFY-001"],
+      "uncovered_requirement_ids": ["REQ-WORKFLOW-NOTIFY-002"],
+      "defect_step_ids": ["TP-002"],
+      "reason_classifications": {
+        "TP-002": "upstream_unavailable"
+      },
+      "output_fragments": [
+        "POST /api/v1/notifications returned 202; expected [202].",
+        "GET /api/v1/notifications/msg_001 returned 500; expected [200]."
+      ]
+    }
+  },
+  {
+    "id": "file-export-permission-workflow-001",
+    "description": "从文件导出需求生成测试计划，执行 HTTP 工具后识别越权下载未按预期完成。",
+    "source": "eval/workflow/file-export-permission",
+    "requirements": [
+      {
+        "id": "REQ-WORKFLOW-EXPORT-001",
+        "title": "创建文件导出任务 API",
+        "description": "POST /api/v1/files/exports 返回 202 并创建导出任务。",
+        "keywords": ["POST /api/v1/files/exports", "202", "导出任务"],
+        "priority": "medium",
+        "source": "eval/workflow/file-export-permission"
+      },
+      {
+        "id": "REQ-WORKFLOW-EXPORT-002",
+        "title": "下载文件导出结果 API",
+        "description": "GET /api/v1/files/exports/exp_001/download 返回 200；无权限或越权下载必须被拒绝。",
+        "keywords": [
+          "GET /api/v1/files/exports/exp_001/download",
+          "200",
+          "无权限",
+          "越权",
+          "拒绝"
+        ],
+        "priority": "critical",
+        "source": "eval/workflow/file-export-permission"
+      }
+    ],
+    "http_responses": [
+      {
+        "method": "POST",
+        "path": "/api/v1/files/exports",
+        "status": 202,
+        "json": { "export_id": "exp_001", "status": "queued" }
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/files/exports/exp_001/download",
+        "status": 403,
+        "json": { "error": "forbidden download", "export_id": "exp_001" }
+      }
+    ],
+    "expected": {
+      "plan_tools": ["http"],
+      "plan_test_types": ["exception", "functional", "permission", "security"],
+      "generated_step_count": 2,
+      "risk_keywords": ["鉴权和权限边界需要重点验证"],
+      "report_status": "failed",
+      "tool_run_statuses": {
+        "TP-001": "passed",
+        "TP-002": "failed"
+      },
+      "covered_requirement_ids": ["REQ-WORKFLOW-EXPORT-001"],
+      "uncovered_requirement_ids": ["REQ-WORKFLOW-EXPORT-002"],
+      "defect_step_ids": ["TP-002"],
+      "reason_classifications": {
+        "TP-002": "permission_denied"
+      },
+      "output_fragments": [
+        "POST /api/v1/files/exports returned 202; expected [202].",
+        "GET /api/v1/files/exports/exp_001/download returned 403; expected [200]."
+      ]
+    }
+  },
+  {
+    "id": "pytest-assertion-workflow-001",
+    "description": "从 pytest 回归需求生成测试计划，执行 pytest 工具后识别断言失败。",
+    "source": "eval/workflow/pytest-assertion",
+    "requirements": [
+      {
+        "id": "REQ-WORKFLOW-PYTEST-001",
+        "title": "报告服务 pytest 回归",
+        "description": "运行 pytest tests/test_test_report.py 验证报告断言通过；断言失败必须暴露业务规则不一致。",
+        "keywords": [
+          "pytest",
+          "tests/test_test_report.py",
+          "断言",
+          "业务规则",
+          "失败"
+        ],
+        "priority": "high",
+        "source": "eval/workflow/pytest-assertion"
+      }
+    ],
+    "pytest_results": [
+      {
+        "test_path": "tests/test_test_report.py",
+        "returncode": 1,
+        "stdout": "FAILED tests/test_test_report.py::test_report_summary\nE AssertionError: expected coverage=1/1 requirement(s)",
+        "stderr": ""
+      }
+    ],
+    "expected": {
+      "plan_tools": ["pytest"],
+      "plan_test_types": ["exception", "functional"],
+      "generated_step_count": 1,
+      "risk_keywords": ["需求存在歧义时需要人工确认验收标准"],
+      "report_status": "failed",
+      "tool_run_statuses": {
+        "TP-001": "failed"
+      },
+      "covered_requirement_ids": [],
+      "uncovered_requirement_ids": ["REQ-WORKFLOW-PYTEST-001"],
+      "defect_step_ids": ["TP-001"],
+      "reason_classifications": {
+        "TP-001": "assertion_mismatch"
+      },
+      "output_fragments": [
+        "FAILED tests/test_test_report.py::test_report_summary",
+        "AssertionError"
+      ]
+    }
+  },
+  {
+    "id": "profile-validation-workflow-001",
+    "description": "从用户资料需求生成测试计划，执行 HTTP 工具后识别参数校验失败。",
+    "source": "eval/workflow/profile-validation",
+    "requirements": [
+      {
+        "id": "REQ-WORKFLOW-PROFILE-001",
+        "title": "更新用户资料 API",
+        "description": "PUT /api/v1/profile 返回 200；手机号格式错误或必填项缺失时必须暴露参数校验错误。",
+        "keywords": ["PUT /api/v1/profile", "200", "手机号", "参数", "校验"],
+        "priority": "high",
+        "source": "eval/workflow/profile-validation"
+      }
+    ],
+    "http_responses": [
+      {
+        "method": "PUT",
+        "path": "/api/v1/profile",
+        "status": 422,
+        "json": { "error": "invalid phone format" }
+      }
+    ],
+    "expected": {
+      "plan_tools": ["http"],
+      "plan_test_types": ["exception", "functional"],
+      "generated_step_count": 1,
+      "risk_keywords": ["需求存在歧义时需要人工确认验收标准"],
+      "report_status": "failed",
+      "tool_run_statuses": {
+        "TP-001": "failed"
+      },
+      "covered_requirement_ids": [],
+      "uncovered_requirement_ids": ["REQ-WORKFLOW-PROFILE-001"],
+      "defect_step_ids": ["TP-001"],
+      "reason_classifications": {
+        "TP-001": "validation_error"
+      },
+      "output_fragments": [
+        "PUT /api/v1/profile returned 422; expected [200]."
+      ]
+    }
+  },
+  {
+    "id": "refund-amount-mismatch-workflow-001",
+    "description": "从退款金额对账需求生成测试计划，执行 HTTP 工具后识别退款金额不一致。",
+    "source": "eval/workflow/refund-amount-mismatch",
+    "requirements": [
+      {
+        "id": "REQ-WORKFLOW-REFUND-AMOUNT-001",
+        "title": "创建退款结算 API",
+        "description": "POST /api/v1/refunds/rf_002/settlements 返回 201 并记录退款金额 100.00。",
+        "keywords": ["POST /api/v1/refunds/rf_002/settlements", "201", "退款", "金额"],
+        "priority": "critical",
+        "source": "eval/workflow/refund-amount-mismatch"
+      },
+      {
+        "id": "REQ-WORKFLOW-REFUND-AMOUNT-002",
+        "title": "退款金额对账 API",
+        "description": "GET /api/v1/refunds/rf_002/reconciliation 返回 200，JSON 字段 amount 应为 100.00；退款金额不一致或对账冲突必须暴露异常。",
+        "keywords": [
+          "GET /api/v1/refunds/rf_002/reconciliation",
+          "200",
+          "退款",
+          "金额",
+          "冲突"
+        ],
+        "priority": "critical",
+        "source": "eval/workflow/refund-amount-mismatch"
+      }
+    ],
+    "http_responses": [
+      {
+        "method": "POST",
+        "path": "/api/v1/refunds/rf_002/settlements",
+        "status": 201,
+        "json": { "refund_id": "rf_002", "amount": "100.00", "status": "settled" }
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/refunds/rf_002/reconciliation",
+        "status": 200,
+        "json": { "refund_id": "rf_002", "amount": "99.00", "status": "mismatched" }
+      }
+    ],
+    "expected": {
+      "plan_tools": ["http"],
+      "plan_test_types": ["exception", "functional"],
+      "generated_step_count": 2,
+      "risk_keywords": [
+        "重复提交和幂等冲突需要覆盖",
+        "资金相关路径需要覆盖异常和审计"
+      ],
+      "report_status": "failed",
+      "tool_run_statuses": {
+        "TP-001": "passed",
+        "TP-002": "failed"
+      },
+      "covered_requirement_ids": ["REQ-WORKFLOW-REFUND-AMOUNT-001"],
+      "uncovered_requirement_ids": ["REQ-WORKFLOW-REFUND-AMOUNT-002"],
+      "defect_step_ids": ["TP-002"],
+      "reason_classifications": {
+        "TP-002": "response_assertion_mismatch"
+      },
+      "output_fragments": [
+        "POST /api/v1/refunds/rf_002/settlements returned 201; expected [201].",
+        "JSON assertion failed: path amount expected \"100.00\" but got \"99.00\"."
+      ]
+    }
+  },
+  {
+    "id": "async-final-state-workflow-001",
+    "description": "从异步终态一致性需求生成测试计划，执行 HTTP 工具后识别终态不一致。",
+    "source": "eval/workflow/async-final-state",
+    "requirements": [
+      {
+        "id": "REQ-WORKFLOW-ASYNC-FINAL-001",
+        "title": "提交订单异步处理 API",
+        "description": "POST /api/v1/orders/order_001/jobs 返回 202 并进入异步处理队列。",
+        "keywords": ["POST /api/v1/orders/order_001/jobs", "202", "异步", "队列"],
+        "priority": "high",
+        "source": "eval/workflow/async-final-state"
+      },
+      {
+        "id": "REQ-WORKFLOW-ASYNC-FINAL-002",
+        "title": "查询订单异步终态 API",
+        "description": "GET /api/v1/orders/order_001/jobs/job_002/final-state 返回 200，JSON 字段 final_state 应为 completed；异步终态与订单状态不一致或状态冲突必须暴露异常。",
+        "keywords": [
+          "GET /api/v1/orders/order_001/jobs/job_002/final-state",
+          "200",
+          "异步",
+          "终态",
+          "冲突"
+        ],
+        "priority": "critical",
+        "source": "eval/workflow/async-final-state"
+      }
+    ],
+    "http_responses": [
+      {
+        "method": "POST",
+        "path": "/api/v1/orders/order_001/jobs",
+        "status": 202,
+        "json": { "job_id": "job_002", "status": "queued" }
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/orders/order_001/jobs/job_002/final-state",
+        "status": 200,
+        "json": { "job_status": "succeeded", "final_state": "pending", "order_status": "pending" }
+      }
+    ],
+    "expected": {
+      "plan_tools": ["http"],
+      "plan_test_types": ["exception", "functional"],
+      "generated_step_count": 2,
+      "risk_keywords": [
+        "重复提交和幂等冲突需要覆盖",
+        "异步状态、重试和超时需要覆盖"
+      ],
+      "report_status": "failed",
+      "tool_run_statuses": {
+        "TP-001": "passed",
+        "TP-002": "failed"
+      },
+      "covered_requirement_ids": ["REQ-WORKFLOW-ASYNC-FINAL-001"],
+      "uncovered_requirement_ids": ["REQ-WORKFLOW-ASYNC-FINAL-002"],
+      "defect_step_ids": ["TP-002"],
+      "reason_classifications": {
+        "TP-002": "response_assertion_mismatch"
+      },
+      "output_fragments": [
+        "POST /api/v1/orders/order_001/jobs returned 202; expected [202].",
+        "JSON assertion failed: path final_state expected \"completed\" but got \"pending\"."
+      ]
+    }
+  },
+  {
+    "id": "checkout-prerequisite-workflow-001",
+    "description": "从结账前置条件需求生成测试计划，执行 HTTP 工具后识别前置校验失败和后续支付阻断。",
+    "source": "eval/workflow/checkout-prerequisite",
+    "requirements": [
+      {
+        "id": "REQ-WORKFLOW-CHECKOUT-001",
+        "title": "创建结账单 API",
+        "description": "POST /api/v1/checkouts 返回 201；地址缺失或金额参数错误时必须暴露参数校验错误。",
+        "keywords": ["POST /api/v1/checkouts", "201", "金额", "参数", "校验"],
+        "priority": "critical",
+        "source": "eval/workflow/checkout-prerequisite"
+      },
+      {
+        "id": "REQ-WORKFLOW-CHECKOUT-002",
+        "title": "结账单支付 API",
+        "description": "POST /api/v1/checkouts/chk_001/pay 返回 202；前置结账单失败时支付依赖不可用必须暴露异常。",
+        "keywords": ["POST /api/v1/checkouts/chk_001/pay", "202", "支付", "依赖", "失败"],
+        "priority": "critical",
+        "source": "eval/workflow/checkout-prerequisite"
+      }
+    ],
+    "http_responses": [
+      {
+        "method": "POST",
+        "path": "/api/v1/checkouts",
+        "status": 422,
+        "json": { "error": "shipping address is required" }
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/checkouts/chk_001/pay",
+        "status": 503,
+        "json": { "error": "checkout prerequisite unavailable", "checkout_id": "chk_001" }
+      }
+    ],
+    "expected": {
+      "plan_tools": ["http"],
+      "plan_test_types": ["exception", "functional"],
+      "generated_step_count": 2,
+      "risk_keywords": ["资金相关路径需要覆盖异常和审计"],
+      "report_status": "failed",
+      "tool_run_statuses": {
+        "TP-001": "failed",
+        "TP-002": "failed"
+      },
+      "covered_requirement_ids": [],
+      "uncovered_requirement_ids": [
+        "REQ-WORKFLOW-CHECKOUT-001",
+        "REQ-WORKFLOW-CHECKOUT-002"
+      ],
+      "defect_step_ids": ["TP-001", "TP-002"],
+      "reason_classifications": {
+        "TP-001": "validation_error",
+        "TP-002": "upstream_unavailable"
+      },
+      "output_fragments": [
+        "POST /api/v1/checkouts returned 422; expected [201].",
+        "POST /api/v1/checkouts/chk_001/pay returned 503; expected [202]."
+      ]
+    }
+  },
+  {
+    "id": "payment-callback-idempotency-workflow-001",
+    "description": "从支付回调幂等需求生成测试计划，执行 HTTP 工具后识别重复回调冲突。",
+    "source": "eval/workflow/payment-callback-idempotency",
+    "requirements": [
+      {
+        "id": "REQ-WORKFLOW-CALLBACK-001",
+        "title": "处理支付回调 API",
+        "description": "POST /api/v1/payments/pay_002/callback 返回 200 并记录支付回调。",
+        "keywords": ["POST /api/v1/payments/pay_002/callback", "200", "支付", "回调"],
+        "priority": "critical",
+        "source": "eval/workflow/payment-callback-idempotency"
+      },
+      {
+        "id": "REQ-WORKFLOW-CALLBACK-002",
+        "title": "重复支付回调幂等 API",
+        "description": "POST /api/v1/payments/pay_002/callback/replay 返回 200；重复回调必须幂等且不能产生冲突。",
+        "keywords": [
+          "POST /api/v1/payments/pay_002/callback/replay",
+          "200",
+          "重复",
+          "幂等",
+          "冲突"
+        ],
+        "priority": "critical",
+        "source": "eval/workflow/payment-callback-idempotency"
+      }
+    ],
+    "http_responses": [
+      {
+        "method": "POST",
+        "path": "/api/v1/payments/pay_002/callback",
+        "status": 200,
+        "json": { "payment_id": "pay_002", "status": "confirmed" }
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/payments/pay_002/callback/replay",
+        "status": 409,
+        "json": { "error": "duplicate callback conflict", "payment_id": "pay_002" }
+      }
+    ],
+    "expected": {
+      "plan_tools": ["http"],
+      "plan_test_types": ["exception", "functional"],
+      "generated_step_count": 2,
+      "risk_keywords": [
+        "重复提交和幂等冲突需要覆盖",
+        "资金相关路径需要覆盖异常和审计"
+      ],
+      "report_status": "failed",
+      "tool_run_statuses": {
+        "TP-001": "passed",
+        "TP-002": "failed"
+      },
+      "covered_requirement_ids": ["REQ-WORKFLOW-CALLBACK-001"],
+      "uncovered_requirement_ids": ["REQ-WORKFLOW-CALLBACK-002"],
+      "defect_step_ids": ["TP-002"],
+      "reason_classifications": {
+        "TP-002": "conflict"
+      },
+      "output_fragments": [
+        "POST /api/v1/payments/pay_002/callback returned 200; expected [200].",
+        "POST /api/v1/payments/pay_002/callback/replay returned 409; expected [200]."
+      ]
+    }
+  },
+  {
+    "id": "sql-adapter-missing-workflow-001",
+    "description": "从数据库校验需求生成测试计划，未注册 SQL adapter 时报告应标记阻塞而不是失败。",
+    "source": "eval/workflow/sql-adapter-missing",
+    "requirements": [
+      {
+        "id": "REQ-WORKFLOW-SQL-001",
+        "title": "退款审计 SQL 校验",
+        "description": "MySQL audit_logs 表需要写入 refund_id 字段并可用 SQL 校验。",
+        "keywords": ["MySQL", "audit_logs", "refund_id", "SQL", "字段"],
+        "priority": "high",
+        "source": "eval/workflow/sql-adapter-missing"
+      }
+    ],
+    "expected": {
+      "plan_tools": ["sql"],
+      "plan_test_types": ["functional"],
+      "generated_step_count": 1,
+      "risk_keywords": ["资金相关路径需要覆盖异常和审计"],
+      "report_status": "blocked",
+      "tool_run_statuses": {
+        "TP-001": "blocked"
+      },
+      "covered_requirement_ids": [],
+      "uncovered_requirement_ids": ["REQ-WORKFLOW-SQL-001"],
+      "defect_step_ids": [],
+      "reason_classifications": {
+        "TP-001": "adapter_missing"
+      },
+      "output_fragments": [
+        "No adapter registered for tool: sql."
+      ]
+    }
+  },
+  {
+    "id": "manual-confirmation-workflow-001",
+    "description": "从高风险人工确认需求生成测试计划，人工步骤未执行时报告应保持 incomplete。",
+    "source": "eval/workflow/manual-confirmation",
+    "requirements": [
+      {
+        "id": "REQ-WORKFLOW-MANUAL-001",
+        "title": "高风险上线人工确认",
+        "description": "高风险上线变更需要人工确认审批记录，未确认不得通过。",
+        "keywords": ["人工确认", "审批记录", "manual confirmation"],
+        "priority": "critical",
+        "source": "eval/workflow/manual-confirmation"
+      }
+    ],
+    "expected": {
+      "plan_tools": ["manual"],
+      "plan_test_types": ["functional"],
+      "generated_step_count": 1,
+      "risk_keywords": ["需求存在歧义时需要人工确认验收标准"],
+      "report_status": "incomplete",
+      "tool_run_statuses": {
+        "TP-001": "skipped"
+      },
+      "covered_requirement_ids": [],
+      "uncovered_requirement_ids": ["REQ-WORKFLOW-MANUAL-001"],
+      "defect_step_ids": [],
+      "reason_classifications": {
+        "TP-001": "manual_confirmation_required"
+      },
+      "output_fragments": [
+        "Manual step requires human execution."
+      ]
+    }
+  }
+]

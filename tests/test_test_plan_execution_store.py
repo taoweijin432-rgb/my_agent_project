@@ -69,10 +69,12 @@ def test_test_plan_execution_store_returns_request_and_active_count(tmp_path: Pa
 
     request = store.get_request(created.id)
     active_count = store.count_active_jobs()
+    counts = store.count_jobs_by_status()
 
     assert request is not None
     assert request.plan.id == "plan-1"
     assert active_count == 1
+    assert counts == {"queued": 1}
 
 
 def test_test_plan_execution_store_fails_stale_running_jobs(tmp_path: Path) -> None:
@@ -99,3 +101,30 @@ def test_test_plan_execution_store_fails_stale_running_jobs(tmp_path: Path) -> N
     assert detail.status == "failed"
     assert detail.error is not None
     assert detail.error.code == "test_plan_execution_job_stale"
+
+
+def test_test_plan_execution_store_fails_stale_queued_jobs(tmp_path: Path) -> None:
+    store = JobStore(_settings(tmp_path))
+    created = store.create_job(_request())
+    with sqlite3.connect(tmp_path / "app.sqlite3") as connection:
+        connection.execute(
+            """
+            UPDATE test_plan_execution_jobs
+            SET created_epoch = 1
+            WHERE id = ?
+            """,
+            (created.id,),
+        )
+        connection.commit()
+
+    running_only_ids = store.fail_stale_running_jobs(stale_after_seconds=60)
+    stale_ids = store.fail_stale_active_jobs(stale_after_seconds=60)
+    detail = store.get_job(created.id)
+
+    assert running_only_ids == []
+    assert stale_ids == [created.id]
+    assert detail is not None
+    assert detail.status == "failed"
+    assert detail.error is not None
+    assert detail.error.code == "test_plan_execution_job_stale"
+    assert "queued or running" in detail.error.message

@@ -8,22 +8,25 @@ from uuid import uuid4
 
 from app.core.config import PROJECT_ROOT, Settings
 from app.models.test_plan import (
-    TestExecutionReport,
-    TestPlanExecutionJobDetail,
-    TestPlanExecutionJobError,
-    TestPlanExecutionJobSummary,
-    TestPlanExecutionRequest,
+    TestAgentWorkflowJobDetail,
+    TestAgentWorkflowJobError,
+    TestAgentWorkflowJobSummary,
+    TestAgentWorkflowRequest,
+    TestAgentWorkflowResult,
+)
+from app.services.test_agent_workflow_metrics import (
+    build_test_agent_workflow_job_timing,
 )
 
 
-class TestPlanExecutionJobStore:
+class TestAgentWorkflowJobStore:
     def __init__(self, settings: Settings) -> None:
         self.db_path = _resolve_db_path(settings.generation_history_db_path)
         self.retention_seconds = settings.generation_job_retention_seconds
         self._lock = threading.Lock()
         self._initialize()
 
-    def create_job(self, request: TestPlanExecutionRequest) -> TestPlanExecutionJobDetail:
+    def create_job(self, request: TestAgentWorkflowRequest) -> TestAgentWorkflowJobDetail:
         now = _utc_now()
         job_id = uuid4().hex
         with self._lock:
@@ -31,7 +34,7 @@ class TestPlanExecutionJobStore:
             with self._connect() as connection:
                 connection.execute(
                     """
-                    INSERT INTO test_plan_execution_jobs (
+                    INSERT INTO test_agent_workflow_jobs (
                         id, status, created_at, updated_at, created_epoch, request_json
                     )
                     VALUES (?, ?, ?, ?, ?, ?)
@@ -48,24 +51,24 @@ class TestPlanExecutionJobStore:
                 connection.commit()
         job = self.get_job(job_id)
         if job is None:
-            raise RuntimeError("failed to create test plan execution job")
+            raise RuntimeError("failed to create test agent workflow job")
         return job
 
-    def get_request(self, job_id: str) -> TestPlanExecutionRequest | None:
+    def get_request(self, job_id: str) -> TestAgentWorkflowRequest | None:
         with self._lock:
             self._cleanup_expired_locked()
             with self._connect() as connection:
                 row = connection.execute(
                     """
                     SELECT request_json
-                    FROM test_plan_execution_jobs
+                    FROM test_agent_workflow_jobs
                     WHERE id = ?
                     """,
                     (job_id,),
                 ).fetchone()
         if row is None:
             return None
-        return TestPlanExecutionRequest.model_validate(json.loads(row["request_json"]))
+        return TestAgentWorkflowRequest.model_validate(json.loads(row["request_json"]))
 
     def count_active_jobs(self) -> int:
         with self._lock:
@@ -74,7 +77,7 @@ class TestPlanExecutionJobStore:
                 row = connection.execute(
                     """
                     SELECT COUNT(*) AS count
-                    FROM test_plan_execution_jobs
+                    FROM test_agent_workflow_jobs
                     WHERE status IN ('queued', 'running')
                     """
                 ).fetchone()
@@ -87,21 +90,21 @@ class TestPlanExecutionJobStore:
                 rows = connection.execute(
                     """
                     SELECT status, COUNT(*) AS count
-                    FROM test_plan_execution_jobs
+                    FROM test_agent_workflow_jobs
                     GROUP BY status
                     """
                 ).fetchall()
         return {str(row["status"]): int(row["count"]) for row in rows}
 
-    def get_job(self, job_id: str) -> TestPlanExecutionJobDetail | None:
+    def get_job(self, job_id: str) -> TestAgentWorkflowJobDetail | None:
         with self._lock:
             self._cleanup_expired_locked()
             with self._connect() as connection:
                 row = connection.execute(
                     """
                     SELECT id, status, created_at, updated_at, started_at, finished_at,
-                           request_json, report_json, error_json
-                    FROM test_plan_execution_jobs
+                           request_json, result_json, error_json
+                    FROM test_agent_workflow_jobs
                     WHERE id = ?
                     """,
                     (job_id,),
@@ -114,7 +117,7 @@ class TestPlanExecutionJobStore:
         limit: int = 20,
         offset: int = 0,
         status: str | None = None,
-    ) -> list[TestPlanExecutionJobSummary]:
+    ) -> list[TestAgentWorkflowJobSummary]:
         params: list[object] = []
         where = ""
         if status:
@@ -128,7 +131,7 @@ class TestPlanExecutionJobStore:
                     f"""
                     SELECT id, status, created_at, updated_at, started_at, finished_at,
                            error_json
-                    FROM test_plan_execution_jobs
+                    FROM test_agent_workflow_jobs
                     {where}
                     ORDER BY created_epoch DESC
                     LIMIT ? OFFSET ?
@@ -143,7 +146,7 @@ class TestPlanExecutionJobStore:
             with self._connect() as connection:
                 connection.execute(
                     """
-                    UPDATE test_plan_execution_jobs
+                    UPDATE test_agent_workflow_jobs
                     SET status = 'running',
                         started_at = COALESCE(started_at, ?),
                         started_epoch = COALESCE(started_epoch, ?),
@@ -154,22 +157,22 @@ class TestPlanExecutionJobStore:
                 )
                 connection.commit()
 
-    def mark_succeeded(self, job_id: str, report: TestExecutionReport) -> None:
+    def mark_succeeded(self, job_id: str, result: TestAgentWorkflowResult) -> None:
         now = _utc_now()
         with self._lock:
             with self._connect() as connection:
                 connection.execute(
                     """
-                    UPDATE test_plan_execution_jobs
+                    UPDATE test_agent_workflow_jobs
                     SET status = 'succeeded',
-                        report_json = ?,
+                        result_json = ?,
                         finished_at = ?,
                         finished_epoch = ?,
                         updated_at = ?
                     WHERE id = ?
                     """,
                     (
-                        _json_dumps(report.model_dump(mode="json")),
+                        _json_dumps(result.model_dump(mode="json")),
                         now,
                         time.time(),
                         now,
@@ -178,13 +181,17 @@ class TestPlanExecutionJobStore:
                 )
                 connection.commit()
 
-    def mark_failed(self, job_id: str, error: TestPlanExecutionJobError) -> None:
+    def mark_failed(
+        self,
+        job_id: str,
+        error: TestAgentWorkflowJobError,
+    ) -> None:
         now = _utc_now()
         with self._lock:
             with self._connect() as connection:
                 connection.execute(
                     """
-                    UPDATE test_plan_execution_jobs
+                    UPDATE test_agent_workflow_jobs
                     SET status = 'failed',
                         error_json = ?,
                         finished_at = COALESCE(finished_at, ?),
@@ -229,10 +236,10 @@ class TestPlanExecutionJobStore:
         now_epoch = time.time()
         cutoff_epoch = now_epoch - stale_after_seconds
         now = _utc_now()
-        error = TestPlanExecutionJobError(
-            code="test_plan_execution_job_stale",
+        error = TestAgentWorkflowJobError(
+            code="test_agent_workflow_job_stale",
             message=(
-                f"Test plan execution job was marked failed because it stayed {stale_state} "
+                f"Test agent workflow job was marked failed because it stayed {stale_state} "
                 f"for more than {stale_after_seconds} seconds."
             ),
         )
@@ -242,7 +249,7 @@ class TestPlanExecutionJobStore:
         if include_queued:
             query = """
                     SELECT id
-                    FROM test_plan_execution_jobs
+                    FROM test_agent_workflow_jobs
                     WHERE (
                         status = 'running'
                         AND (
@@ -262,7 +269,7 @@ class TestPlanExecutionJobStore:
         else:
             query = """
                     SELECT id
-                    FROM test_plan_execution_jobs
+                    FROM test_agent_workflow_jobs
                     WHERE status = 'running'
                       AND (
                         (started_epoch IS NOT NULL AND started_epoch < ?)
@@ -278,7 +285,7 @@ class TestPlanExecutionJobStore:
                     return []
                 connection.executemany(
                     """
-                    UPDATE test_plan_execution_jobs
+                    UPDATE test_agent_workflow_jobs
                     SET status = 'failed',
                         error_json = ?,
                         finished_at = ?,
@@ -307,7 +314,7 @@ class TestPlanExecutionJobStore:
                 connection.execute("PRAGMA journal_mode=WAL")
                 connection.execute(
                     """
-                    CREATE TABLE IF NOT EXISTS test_plan_execution_jobs (
+                    CREATE TABLE IF NOT EXISTS test_agent_workflow_jobs (
                         id TEXT PRIMARY KEY,
                         status TEXT NOT NULL,
                         created_at TEXT NOT NULL,
@@ -318,21 +325,27 @@ class TestPlanExecutionJobStore:
                         started_epoch REAL,
                         finished_epoch REAL,
                         request_json TEXT NOT NULL,
-                        report_json TEXT,
+                        result_json TEXT,
                         error_json TEXT
                     )
                     """
                 )
                 connection.execute(
                     """
-                    CREATE INDEX IF NOT EXISTS idx_test_plan_execution_jobs_created_epoch
-                    ON test_plan_execution_jobs (created_epoch DESC)
+                    CREATE INDEX IF NOT EXISTS idx_test_agent_workflow_jobs_created_epoch
+                    ON test_agent_workflow_jobs (created_epoch DESC)
                     """
                 )
                 connection.execute(
                     """
-                    CREATE INDEX IF NOT EXISTS idx_test_plan_execution_jobs_status
-                    ON test_plan_execution_jobs (status)
+                    CREATE INDEX IF NOT EXISTS idx_test_agent_workflow_jobs_status
+                    ON test_agent_workflow_jobs (status)
+                    """
+                )
+                connection.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_test_agent_workflow_jobs_active
+                    ON test_agent_workflow_jobs (status, created_epoch)
                     """
                 )
                 connection.commit()
@@ -344,7 +357,7 @@ class TestPlanExecutionJobStore:
         with self._connect() as connection:
             connection.execute(
                 """
-                DELETE FROM test_plan_execution_jobs
+                DELETE FROM test_agent_workflow_jobs
                 WHERE finished_epoch IS NOT NULL
                   AND finished_epoch < ?
                 """,
@@ -358,8 +371,8 @@ class TestPlanExecutionJobStore:
         return connection
 
 
-def _summary_from_row(row: sqlite3.Row) -> TestPlanExecutionJobSummary:
-    return TestPlanExecutionJobSummary(
+def _summary_from_row(row: sqlite3.Row) -> TestAgentWorkflowJobSummary:
+    return TestAgentWorkflowJobSummary(
         id=row["id"],
         status=row["status"],
         created_at=row["created_at"],
@@ -367,27 +380,35 @@ def _summary_from_row(row: sqlite3.Row) -> TestPlanExecutionJobSummary:
         started_at=row["started_at"],
         finished_at=row["finished_at"],
         error=_error_from_raw(row["error_json"]),
+        timing=build_test_agent_workflow_job_timing(
+            created_at=row["created_at"],
+            started_at=row["started_at"],
+            finished_at=row["finished_at"],
+            result=_result_from_raw(row["result_json"])
+            if "result_json" in row.keys()
+            else None,
+        ),
     )
 
 
-def _detail_from_row(row: sqlite3.Row) -> TestPlanExecutionJobDetail:
-    return TestPlanExecutionJobDetail(
+def _detail_from_row(row: sqlite3.Row) -> TestAgentWorkflowJobDetail:
+    return TestAgentWorkflowJobDetail(
         **_summary_from_row(row).model_dump(),
-        request=TestPlanExecutionRequest.model_validate(json.loads(row["request_json"])),
-        report=_report_from_raw(row["report_json"]),
+        request=TestAgentWorkflowRequest.model_validate(json.loads(row["request_json"])),
+        result=_result_from_raw(row["result_json"]),
     )
 
 
-def _error_from_raw(raw: str | None) -> TestPlanExecutionJobError | None:
+def _error_from_raw(raw: str | None) -> TestAgentWorkflowJobError | None:
     if not raw:
         return None
-    return TestPlanExecutionJobError.model_validate(json.loads(raw))
+    return TestAgentWorkflowJobError.model_validate(json.loads(raw))
 
 
-def _report_from_raw(raw: str | None) -> TestExecutionReport | None:
+def _result_from_raw(raw: str | None) -> TestAgentWorkflowResult | None:
     if not raw:
         return None
-    return TestExecutionReport.model_validate(json.loads(raw))
+    return TestAgentWorkflowResult.model_validate(json.loads(raw))
 
 
 def _resolve_db_path(raw_path: str) -> Path:

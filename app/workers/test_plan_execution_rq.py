@@ -4,7 +4,7 @@ import socket
 from app.core.config import get_settings
 from app.models.test_plan import TestPlanExecutionJobError
 from app.services.test_plan_execution import execute_test_plan_request
-from app.services.test_plan_execution_store import TestPlanExecutionJobStore
+from app.services.stores import create_test_plan_execution_job_store
 
 
 logger = logging.getLogger("app.test_plan_execution_worker")
@@ -12,8 +12,8 @@ logger = logging.getLogger("app.test_plan_execution_worker")
 
 def recover_stale_test_plan_execution_jobs() -> list[str]:
     settings = get_settings()
-    store = TestPlanExecutionJobStore(settings)
-    job_ids = store.fail_stale_running_jobs(
+    store = create_test_plan_execution_job_store(settings)
+    job_ids = store.fail_stale_active_jobs(
         stale_after_seconds=settings.generation_job_stale_after_seconds
     )
     if job_ids:
@@ -26,7 +26,7 @@ def recover_stale_test_plan_execution_jobs() -> list[str]:
 
 def run_test_plan_execution_job(job_id: str) -> str | None:
     settings = get_settings()
-    store = TestPlanExecutionJobStore(settings)
+    store = create_test_plan_execution_job_store(settings)
     request = store.get_request(job_id)
     if request is None:
         logger.warning("test plan execution job not found", extra={"job_id": job_id})

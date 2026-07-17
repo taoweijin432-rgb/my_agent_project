@@ -5,7 +5,7 @@ from typing import Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.security import APIKeyHeader
 
 from app.core.config import Settings, get_settings
@@ -33,7 +33,12 @@ from app.models.test_case import (
     QueryResponse,
 )
 from app.models.test_plan import (
+    TestAgentWorkflowJobDetail,
+    TestAgentWorkflowJobListResponse,
+    TestAgentWorkflowRequest,
+    TestAgentWorkflowResult,
     TestExecutionReport,
+    TestExecutionReportExportRequest,
     TestPlan,
     TestPlanExecutionRequest,
     TestPlanExecutionJobDetail,
@@ -67,6 +72,7 @@ from app.services.history import (
     GenerationGateAlreadyResolvedError,
 )
 from app.services.llm import LLMClient, LLMError, MissingApiKeyError
+from app.services.metrics import build_metrics_snapshot, format_prometheus_metrics
 from app.services.pytest_exporter import build_pytest_template
 from app.services.rag import ChromaUnavailableError, RagService
 from app.services.stores import (
@@ -74,13 +80,18 @@ from app.services.stores import (
     GenerationJobRepository,
     create_generation_history_store,
     create_generation_job_store,
+    create_test_agent_workflow_job_store,
+    create_test_plan_execution_job_store,
 )
 from app.services.test_plan_execution import (
     TestPlanExecutionConfigurationError,
     build_tool_execution_service,
     execute_test_plan_request as run_test_plan_execution_request,
 )
-from app.services.test_report import build_execution_report
+from app.services.test_agent_workflow import (
+    execute_test_agent_workflow_request as run_test_agent_workflow_request,
+)
+from app.services.test_report import build_execution_report, export_execution_report
 from app.services.test_plan_generator import (
     LLMTestPlanGenerator,
     TestPlanGenerator,
@@ -93,8 +104,15 @@ from app.services.test_plan_execution_jobs import (
     TestPlanExecutionJobQueueFullError,
     TestPlanExecutionJobQueueUnavailableError,
 )
-from app.services.test_plan_execution_store import TestPlanExecutionJobStore
+from app.services.test_agent_workflow_jobs import (
+    InMemoryTestAgentWorkflowJobQueue,
+    RedisRQTestAgentWorkflowJobQueue,
+    TestAgentWorkflowJobQueue,
+    TestAgentWorkflowJobQueueFullError,
+    TestAgentWorkflowJobQueueUnavailableError,
+)
 from app.services.tool_execution import ToolExecutionService
+from app.services.tool_artifacts import ToolArtifactStore
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 logger = logging.getLogger("app.history")
@@ -122,6 +140,8 @@ def require_api_key(api_key: str | None = Depends(api_key_header)) -> None:
 router = APIRouter(dependencies=[Depends(require_api_key)])
 DEFAULT_EXPORT_FILENAME = "test-cases.xlsx"
 DEFAULT_PYTEST_EXPORT_FILENAME = "test_generated_cases.py"
+DEFAULT_TEST_REPORT_MARKDOWN_FILENAME = "test-execution-report.md"
+DEFAULT_TEST_REPORT_JSON_FILENAME = "test-execution-report.json"
 
 
 @lru_cache
@@ -171,6 +191,14 @@ def _tool_execution_service(http_base_url: str) -> ToolExecutionService:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+def _tool_artifact_store() -> ToolArtifactStore:
+    settings = _settings()
+    return ToolArtifactStore(
+        settings.test_tool_artifact_dir,
+        max_bytes=settings.test_tool_artifact_max_bytes,
+    )
+
+
 def _test_plan_generator(
     *,
     use_llm: bool,
@@ -190,12 +218,28 @@ def _test_plan_execution_job_queue() -> TestPlanExecutionJobQueue:
     if settings.generation_job_queue_backend == "rq":
         return RedisRQTestPlanExecutionJobQueue(
             settings,
-            TestPlanExecutionJobStore(settings),
+            create_test_plan_execution_job_store(settings),
         )
-    store = TestPlanExecutionJobStore(settings) if settings.database_backend == "sqlite" else None
+    store = create_test_plan_execution_job_store(settings)
     return InMemoryTestPlanExecutionJobQueue(
         settings,
         _execute_test_plan_request,
+        store=store,
+    )
+
+
+@lru_cache
+def _test_agent_workflow_job_queue() -> TestAgentWorkflowJobQueue:
+    settings = _settings()
+    if settings.generation_job_queue_backend == "rq":
+        return RedisRQTestAgentWorkflowJobQueue(
+            settings,
+            create_test_agent_workflow_job_store(settings),
+        )
+    store = create_test_agent_workflow_job_store(settings)
+    return InMemoryTestAgentWorkflowJobQueue(
+        settings,
+        _execute_test_agent_workflow_request,
         store=store,
     )
 
@@ -326,6 +370,26 @@ def execute_test_plan(request: TestPlanExecutionRequest) -> TestExecutionReport:
     return build_execution_report(request.plan, tool_runs)
 
 
+@router.post("/test-plans/reports/export", tags=["test-plans"])
+def export_test_plan_report(request: TestExecutionReportExportRequest) -> Response:
+    content = export_execution_report(request.report, request.format)
+    filename = request.filename or (
+        DEFAULT_TEST_REPORT_JSON_FILENAME
+        if request.format == "json"
+        else DEFAULT_TEST_REPORT_MARKDOWN_FILENAME
+    )
+    media_type = (
+        "application/json; charset=utf-8"
+        if request.format == "json"
+        else "text/markdown; charset=utf-8"
+    )
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": _content_disposition(filename)},
+    )
+
+
 @router.post(
     "/test-plans/execution-jobs",
     response_model=TestPlanExecutionJobDetail,
@@ -374,6 +438,84 @@ def get_test_plan_execution_job(job_id: str) -> TestPlanExecutionJobDetail:
     if job is None:
         raise HTTPException(status_code=404, detail="Test plan execution job not found.")
     return job
+
+
+@router.post(
+    "/test-agent/workflow-jobs",
+    response_model=TestAgentWorkflowJobDetail,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["test-agent"],
+)
+def submit_test_agent_workflow_job(
+    request: TestAgentWorkflowRequest,
+) -> TestAgentWorkflowJobDetail:
+    try:
+        return _test_agent_workflow_job_queue().submit(request)
+    except TestAgentWorkflowJobQueueFullError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except TestAgentWorkflowJobQueueUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get(
+    "/test-agent/workflow-jobs",
+    response_model=TestAgentWorkflowJobListResponse,
+    tags=["test-agent"],
+)
+def list_test_agent_workflow_jobs(
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    status_filter: Literal["queued", "running", "succeeded", "failed"] | None = Query(
+        default=None,
+        alias="status",
+    ),
+) -> TestAgentWorkflowJobListResponse:
+    jobs = _test_agent_workflow_job_queue().list_jobs(
+        limit=limit,
+        offset=offset,
+        status=status_filter,
+    )
+    return TestAgentWorkflowJobListResponse(jobs=jobs, limit=limit, offset=offset)
+
+
+@router.get(
+    "/test-agent/workflow-jobs/{job_id}",
+    response_model=TestAgentWorkflowJobDetail,
+    tags=["test-agent"],
+)
+def get_test_agent_workflow_job(job_id: str) -> TestAgentWorkflowJobDetail:
+    job = _test_agent_workflow_job_queue().get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Test agent workflow job not found.")
+    return job
+
+
+@router.get(
+    "/test-plans/artifacts/{artifact_path:path}",
+    tags=["test-plans"],
+)
+def get_test_plan_artifact(artifact_path: str) -> FileResponse:
+    try:
+        path = _tool_artifact_store().resolve_path(artifact_path)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Artifact not found.") from exc
+    return FileResponse(str(path), media_type="text/plain; charset=utf-8", filename=path.name)
+
+
+@router.get("/operations/metrics", tags=["operations"])
+def get_operations_metrics() -> dict:
+    return build_metrics_snapshot(_settings())
+
+
+@router.get("/operations/metrics/prometheus", tags=["operations"])
+def get_operations_prometheus_metrics() -> Response:
+    snapshot = build_metrics_snapshot(_settings())
+    return Response(
+        content=format_prometheus_metrics(snapshot),
+        media_type="text/plain; version=0.0.4; charset=utf-8",
+    )
 
 
 @router.post(
@@ -555,6 +697,12 @@ def _execute_generation_job(
 
 def _execute_test_plan_request(request: TestPlanExecutionRequest) -> TestExecutionReport:
     return run_test_plan_execution_request(request, _settings())
+
+
+def _execute_test_agent_workflow_request(
+    request: TestAgentWorkflowRequest,
+) -> TestAgentWorkflowResult:
+    return run_test_agent_workflow_request(request, _settings())
 
 
 def _execute_generation(

@@ -1,0 +1,463 @@
+[
+  {
+    "id": "http-pass-execution-001",
+    "description": "HTTP adapter 返回期望状态时，执行报告应通过并覆盖需求。",
+    "plan": {
+      "id": "plan-http-pass-execution",
+      "title": "HTTP 通过执行计划",
+      "source": "eval/execution/http-pass",
+      "requirements": [
+        {
+          "id": "REQ-HTTP-001",
+          "title": "健康检查通过",
+          "description": "GET /api/v1/health 返回 200。",
+          "keywords": ["GET /api/v1/health", "200"],
+          "priority": "medium",
+          "source": "eval/execution/http-pass"
+        }
+      ],
+      "scope": {
+        "in_scope": ["健康检查通过"],
+        "out_of_scope": [],
+        "assumptions": [],
+        "risks": []
+      },
+      "steps": [
+        {
+          "id": "TP-HTTP-001",
+          "title": "调用健康检查",
+          "objective": "调用健康检查接口。",
+          "requirement_ids": ["REQ-HTTP-001"],
+          "test_types": ["functional"],
+          "priority": "medium",
+          "tool": "http",
+          "tool_args": {
+            "method": "GET",
+            "path": "/api/v1/health",
+            "expected_status": 200
+          },
+          "success_criteria": ["返回 200"]
+        }
+      ]
+    },
+    "http_responses": [
+      {
+        "method": "GET",
+        "path": "/api/v1/health",
+        "status": 200,
+        "json": { "status": "ok" }
+      }
+    ],
+    "expected": {
+      "report_status": "passed",
+      "tool_run_statuses": { "TP-HTTP-001": "passed" },
+      "covered_requirement_ids": ["REQ-HTTP-001"],
+      "uncovered_requirement_ids": [],
+      "defect_step_ids": [],
+      "output_fragments": ["GET /api/v1/health returned 200; expected [200]."]
+    }
+  },
+  {
+    "id": "http-fail-execution-001",
+    "description": "HTTP adapter 返回非期望状态时，报告应失败并只把该步骤作为缺陷。",
+    "plan": {
+      "id": "plan-http-fail-execution",
+      "title": "HTTP 失败执行计划",
+      "source": "eval/execution/http-fail",
+      "requirements": [
+        {
+          "id": "REQ-HTTP-002",
+          "title": "退款创建成功",
+          "description": "POST /api/v1/refunds 返回 200。",
+          "keywords": ["POST /api/v1/refunds", "200"],
+          "priority": "critical",
+          "source": "eval/execution/http-fail"
+        }
+      ],
+      "scope": {
+        "in_scope": ["退款创建成功"],
+        "out_of_scope": [],
+        "assumptions": [],
+        "risks": ["资金相关路径需要覆盖异常和审计"]
+      },
+      "steps": [
+        {
+          "id": "TP-HTTP-002",
+          "title": "调用创建退款",
+          "objective": "调用创建退款接口。",
+          "requirement_ids": ["REQ-HTTP-002"],
+          "test_types": ["functional", "exception"],
+          "priority": "critical",
+          "tool": "http",
+          "tool_args": {
+            "method": "POST",
+            "path": "/api/v1/refunds",
+            "json": { "idempotency_key": "eval-1" },
+            "expected_status": 200
+          },
+          "success_criteria": ["返回 200"]
+        }
+      ]
+    },
+    "http_responses": [
+      {
+        "method": "POST",
+        "path": "/api/v1/refunds",
+        "status": 500,
+        "json": { "error": "internal" }
+      }
+    ],
+    "expected": {
+      "report_status": "failed",
+      "tool_run_statuses": { "TP-HTTP-002": "failed" },
+      "covered_requirement_ids": [],
+      "uncovered_requirement_ids": ["REQ-HTTP-002"],
+      "defect_step_ids": ["TP-HTTP-002"],
+      "output_fragments": ["POST /api/v1/refunds returned 500; expected [200]."]
+    }
+  },
+  {
+    "id": "pytest-pass-execution-001",
+    "description": "pytest adapter runner 返回 0 时，报告应通过并记录 pytest 命令输出。",
+    "plan": {
+      "id": "plan-pytest-pass-execution",
+      "title": "pytest 通过执行计划",
+      "source": "eval/execution/pytest-pass",
+      "requirements": [
+        {
+          "id": "REQ-PYTEST-001",
+          "title": "核心回归通过",
+          "description": "运行报告服务回归测试。",
+          "keywords": ["pytest", "回归"],
+          "priority": "medium",
+          "source": "eval/execution/pytest-pass"
+        }
+      ],
+      "scope": {
+        "in_scope": ["核心回归通过"],
+        "out_of_scope": [],
+        "assumptions": ["pytest runner 由测评脚本注入"],
+        "risks": []
+      },
+      "steps": [
+        {
+          "id": "TP-PYTEST-001",
+          "title": "运行报告服务测试",
+          "objective": "运行报告服务 pytest。",
+          "requirement_ids": ["REQ-PYTEST-001"],
+          "test_types": ["functional"],
+          "priority": "medium",
+          "tool": "pytest",
+          "tool_args": {
+            "test_path": "tests/test_test_report.py",
+            "maxfail": 1
+          },
+          "success_criteria": ["pytest exit code 为 0"]
+        }
+      ]
+    },
+    "pytest_results": [
+      {
+        "test_path": "tests/test_test_report.py",
+        "returncode": 0,
+        "stdout": "3 passed",
+        "stderr": ""
+      }
+    ],
+    "expected": {
+      "report_status": "passed",
+      "tool_run_statuses": { "TP-PYTEST-001": "passed" },
+      "covered_requirement_ids": ["REQ-PYTEST-001"],
+      "uncovered_requirement_ids": [],
+      "defect_step_ids": [],
+      "output_fragments": ["3 passed", "tests/test_test_report.py"]
+    }
+  },
+  {
+    "id": "mixed-fail-execution-001",
+    "description": "HTTP 通过但 pytest 失败时，报告应失败并保留通过步骤的覆盖。",
+    "plan": {
+      "id": "plan-mixed-fail-execution",
+      "title": "混合执行失败计划",
+      "source": "eval/execution/mixed-fail",
+      "requirements": [
+        {
+          "id": "REQ-MIXED-001",
+          "title": "健康检查通过",
+          "description": "GET /api/v1/health 返回 200。",
+          "keywords": ["health", "200"],
+          "priority": "medium",
+          "source": "eval/execution/mixed-fail"
+        },
+        {
+          "id": "REQ-MIXED-002",
+          "title": "pytest 回归通过",
+          "description": "运行 pytest 回归测试。",
+          "keywords": ["pytest", "回归"],
+          "priority": "high",
+          "source": "eval/execution/mixed-fail"
+        }
+      ],
+      "scope": {
+        "in_scope": ["健康检查通过", "pytest 回归通过"],
+        "out_of_scope": [],
+        "assumptions": [],
+        "risks": ["执行环境配置缺失会阻塞自动化"]
+      },
+      "steps": [
+        {
+          "id": "TP-MIXED-001",
+          "title": "调用健康检查",
+          "objective": "调用健康检查接口。",
+          "requirement_ids": ["REQ-MIXED-001"],
+          "test_types": ["functional"],
+          "priority": "medium",
+          "tool": "http",
+          "tool_args": {
+            "method": "GET",
+            "path": "/api/v1/health",
+            "expected_status": 200
+          },
+          "success_criteria": ["返回 200"]
+        },
+        {
+          "id": "TP-MIXED-002",
+          "title": "运行 pytest 回归",
+          "objective": "运行 pytest 回归测试。",
+          "requirement_ids": ["REQ-MIXED-002"],
+          "test_types": ["functional"],
+          "priority": "high",
+          "tool": "pytest",
+          "tool_args": {
+            "test_path": "tests/test_test_report.py",
+            "maxfail": 1
+          },
+          "success_criteria": ["pytest exit code 为 0"]
+        }
+      ]
+    },
+    "http_responses": [
+      {
+        "method": "GET",
+        "path": "/api/v1/health",
+        "status": 200,
+        "json": { "status": "ok" }
+      }
+    ],
+    "pytest_results": [
+      {
+        "test_path": "tests/test_test_report.py",
+        "returncode": 1,
+        "stdout": "1 failed",
+        "stderr": "AssertionError: report status mismatch"
+      }
+    ],
+    "expected": {
+      "report_status": "failed",
+      "tool_run_statuses": {
+        "TP-MIXED-001": "passed",
+        "TP-MIXED-002": "failed"
+      },
+      "covered_requirement_ids": ["REQ-MIXED-001"],
+      "uncovered_requirement_ids": ["REQ-MIXED-002"],
+      "defect_step_ids": ["TP-MIXED-002"],
+      "output_fragments": ["1 failed", "AssertionError: report status mismatch"]
+    }
+  },
+  {
+    "id": "refund-flow-execution-001",
+    "description": "退款业务流中创建和幂等检查通过，但审计查询失败时，报告应保留已通过覆盖并定位失败审计步骤。",
+    "plan": {
+      "id": "plan-refund-flow-execution",
+      "title": "退款业务流执行计划",
+      "source": "eval/execution/refund-flow",
+      "requirements": [
+        {
+          "id": "REQ-REFUND-FLOW-001",
+          "title": "创建退款成功",
+          "description": "提交退款请求后，系统应返回 201 并生成退款编号。",
+          "keywords": ["refund", "201", "refund_id"],
+          "priority": "critical",
+          "source": "eval/execution/refund-flow"
+        },
+        {
+          "id": "REQ-REFUND-FLOW-002",
+          "title": "退款幂等检查通过",
+          "description": "同一业务请求的幂等检查应返回已存在退款记录。",
+          "keywords": ["idempotency", "refund_id"],
+          "priority": "high",
+          "source": "eval/execution/refund-flow"
+        },
+        {
+          "id": "REQ-REFUND-FLOW-003",
+          "title": "退款审计记录可查询",
+          "description": "退款创建后应能查询到审计记录。",
+          "keywords": ["audit", "refund"],
+          "priority": "high",
+          "source": "eval/execution/refund-flow"
+        }
+      ],
+      "scope": {
+        "in_scope": ["创建退款", "幂等检查", "审计查询"],
+        "out_of_scope": ["真实支付网关回调"],
+        "assumptions": ["HTTP 响应由测评脚本注入"],
+        "risks": ["资金路径必须保留审计证据"]
+      },
+      "steps": [
+        {
+          "id": "TP-REFUND-FLOW-001",
+          "title": "提交退款创建请求",
+          "objective": "提交退款请求并检查创建状态。",
+          "requirement_ids": ["REQ-REFUND-FLOW-001"],
+          "test_types": ["functional"],
+          "priority": "critical",
+          "tool": "http",
+          "tool_args": {
+            "method": "POST",
+            "path": "/api/v1/refunds",
+            "headers": { "X-Request-ID": "eval-refund-flow" },
+            "json": {
+              "order_id": "order_eval_001",
+              "amount": 100,
+              "idempotency_key": "refund-eval-001"
+            },
+            "expected_status": 201
+          },
+          "success_criteria": ["返回 201"]
+        },
+        {
+          "id": "TP-REFUND-FLOW-002",
+          "title": "查询退款幂等结果",
+          "objective": "验证幂等请求能关联到同一退款编号。",
+          "requirement_ids": ["REQ-REFUND-FLOW-002"],
+          "test_types": ["functional", "exception"],
+          "priority": "high",
+          "tool": "http",
+          "tool_args": {
+            "method": "GET",
+            "path": "/api/v1/refunds/rf_001/idempotency-check",
+            "expected_status": 200
+          },
+          "success_criteria": ["返回 200"]
+        },
+        {
+          "id": "TP-REFUND-FLOW-003",
+          "title": "查询退款审计记录",
+          "objective": "确认退款审计记录可查询。",
+          "requirement_ids": ["REQ-REFUND-FLOW-003"],
+          "test_types": ["security", "functional"],
+          "priority": "high",
+          "tool": "http",
+          "tool_args": {
+            "method": "GET",
+            "path": "/api/v1/refunds/rf_001/audit",
+            "expected_status": 200
+          },
+          "success_criteria": ["返回 200"]
+        }
+      ]
+    },
+    "http_responses": [
+      {
+        "method": "POST",
+        "path": "/api/v1/refunds",
+        "status": 201,
+        "json": { "refund_id": "rf_001", "status": "created" }
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/refunds/rf_001/idempotency-check",
+        "status": 200,
+        "json": { "refund_id": "rf_001", "idempotent": true }
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/refunds/rf_001/audit",
+        "status": 503,
+        "json": { "error": "audit store unavailable" }
+      }
+    ],
+    "expected": {
+      "report_status": "failed",
+      "tool_run_statuses": {
+        "TP-REFUND-FLOW-001": "passed",
+        "TP-REFUND-FLOW-002": "passed",
+        "TP-REFUND-FLOW-003": "failed"
+      },
+      "covered_requirement_ids": [
+        "REQ-REFUND-FLOW-001",
+        "REQ-REFUND-FLOW-002"
+      ],
+      "uncovered_requirement_ids": ["REQ-REFUND-FLOW-003"],
+      "defect_step_ids": ["TP-REFUND-FLOW-003"],
+      "output_fragments": [
+        "POST /api/v1/refunds returned 201; expected [201].",
+        "GET /api/v1/refunds/rf_001/idempotency-check returned 200; expected [200].",
+        "GET /api/v1/refunds/rf_001/audit returned 503; expected [200]."
+      ]
+    }
+  },
+  {
+    "id": "http-header-blocked-execution-001",
+    "description": "HTTP 工具拒绝未授权 header 时，报告应 blocked，并把需求标记为未覆盖。",
+    "plan": {
+      "id": "plan-http-header-blocked-execution",
+      "title": "HTTP header 权限边界执行计划",
+      "source": "eval/execution/http-header-blocked",
+      "requirements": [
+        {
+          "id": "REQ-HTTP-HEADER-001",
+          "title": "执行工具不得透传敏感 header",
+          "description": "默认 HTTP adapter 不允许 Authorization header 透传到被测服务。",
+          "keywords": ["Authorization", "header", "allowlist"],
+          "priority": "high",
+          "source": "eval/execution/http-header-blocked"
+        }
+      ],
+      "scope": {
+        "in_scope": ["header allowlist"],
+        "out_of_scope": ["真实认证服务"],
+        "assumptions": ["HTTP adapter 使用默认 allowed headers"],
+        "risks": ["错误透传敏感 header 会扩大工具执行权限"]
+      },
+      "steps": [
+        {
+          "id": "TP-HEADER-BLOCKED-001",
+          "title": "尝试透传 Authorization header",
+          "objective": "验证 HTTP 工具会拒绝未授权 header。",
+          "requirement_ids": ["REQ-HTTP-HEADER-001"],
+          "test_types": ["security", "permission"],
+          "priority": "high",
+          "tool": "http",
+          "tool_args": {
+            "method": "GET",
+            "path": "/api/v1/users/me",
+            "headers": { "Authorization": "Bearer eval-secret" },
+            "expected_status": 200
+          },
+          "success_criteria": ["工具应阻止未授权 header"]
+        }
+      ]
+    },
+    "http_responses": [
+      {
+        "method": "GET",
+        "path": "/api/v1/users/me",
+        "status": 200,
+        "json": { "id": "user_eval_001" }
+      }
+    ],
+    "expected": {
+      "report_status": "blocked",
+      "tool_run_statuses": { "TP-HEADER-BLOCKED-001": "blocked" },
+      "covered_requirement_ids": [],
+      "uncovered_requirement_ids": ["REQ-HTTP-HEADER-001"],
+      "defect_step_ids": [],
+      "blocked_step_ids": ["TP-HEADER-BLOCKED-001"],
+      "output_fragments": [
+        "HTTP tool blocked",
+        "HTTP header(s) not allowed: Authorization"
+      ]
+    }
+  }
+]
