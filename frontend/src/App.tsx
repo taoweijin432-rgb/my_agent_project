@@ -3,6 +3,7 @@ import {
   CheckCircle2,
   ClipboardList,
   Database,
+  FileText,
   History,
   KeyRound,
   Loader2,
@@ -21,12 +22,14 @@ import { GeneratePanel } from "./components/GeneratePanel";
 import { HistoryPanel } from "./components/HistoryPanel";
 import { JobsPanel } from "./components/JobsPanel";
 import { KnowledgePanel } from "./components/KnowledgePanel";
+import { TestPlanPanel } from "./components/TestPlanPanel";
 
-type NavKey = "generate" | "jobs" | "knowledge" | "history" | "coverage";
+type NavKey = "generate" | "jobs" | "test-plans" | "knowledge" | "history" | "coverage";
 
 const NAV_ITEMS: Array<{ key: NavKey; label: string; icon: LucideIcon }> = [
   { key: "generate", label: "生成", icon: WandSparkles },
   { key: "jobs", label: "任务", icon: ClipboardList },
+  { key: "test-plans", label: "测试计划", icon: FileText },
   { key: "knowledge", label: "知识库", icon: Database },
   { key: "history", label: "历史", icon: History },
   { key: "coverage", label: "覆盖率", icon: BarChart3 }
@@ -152,6 +155,7 @@ function App() {
           {activeNav === "jobs" && (
             <JobsPanel api={api} onCasesReady={setActiveCases} />
           )}
+          {activeNav === "test-plans" && <TestPlanPanel api={api} />}
           {activeNav === "knowledge" && <KnowledgePanel api={api} />}
           {activeNav === "history" && (
             <HistoryPanel

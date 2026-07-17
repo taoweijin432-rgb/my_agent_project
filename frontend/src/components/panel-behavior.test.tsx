@@ -12,7 +12,11 @@ import type {
   GenerationRecordDetail,
   GenerationRecordSummary,
   GenerationUsage,
-  TestCase
+  TestCase,
+  TestAgentWorkflowJobDetail,
+  TestExecutionReport,
+  TestPlan,
+  TestPlanExecutionJobDetail
 } from "../api/types";
 import { CoveragePanel } from "./CoveragePanel";
 import { GeneratePanel } from "./GeneratePanel";
@@ -20,6 +24,7 @@ import { HistoryPanel } from "./HistoryPanel";
 import { JobsPanel } from "./JobsPanel";
 import { KnowledgePanel } from "./KnowledgePanel";
 import { ResultView } from "./ResultView";
+import { TestPlanPanel } from "./TestPlanPanel";
 
 vi.mock("../api/download", () => ({
   downloadBlob: vi.fn()
@@ -75,6 +80,112 @@ const response: GenerateResponse = {
     workflow_steps: []
   },
   retrieved_context: []
+};
+
+const testPlan: TestPlan = {
+  id: "plan-login",
+  title: "登录测试计划",
+  source: "panel-test",
+  requirements: [
+    {
+      id: "REQ-001",
+      title: "登录成功",
+      description: "登录成功",
+      keywords: ["登录成功"],
+      priority: "high",
+      source: "panel-test"
+    }
+  ],
+  scope: {
+    in_scope: ["登录 API"],
+    out_of_scope: [],
+    assumptions: [],
+    risks: ["验证码过期"]
+  },
+  steps: [
+    {
+      id: "TP-001",
+      title: "登录成功",
+      objective: "调用登录接口",
+      requirement_ids: ["REQ-001"],
+      test_types: ["functional"],
+      priority: "high",
+      tool: "http",
+      tool_args: { path: "/login" },
+      success_criteria: ["返回 200"]
+    }
+  ]
+};
+
+const executionReport: TestExecutionReport = {
+  id: "report-plan-login",
+  plan_id: "plan-login",
+  status: "passed",
+  summary: "登录测试计划: executed 1/1 step(s); passed=1.",
+  tool_runs: [
+    {
+      id: "run-1",
+      plan_step_id: "TP-001",
+      tool: "http",
+      status: "passed",
+      command: ["GET", "/login"],
+      started_at: null,
+      finished_at: null,
+      exit_code: 0,
+      output_summary: "HTTP 200",
+      artifact_paths: ["data/test-artifacts/run-1/output.txt"]
+    }
+  ],
+  requirement_coverage: { "REQ-001": true },
+  defects: [],
+  recommendations: ["继续补充异常路径。"]
+};
+
+const executionJob: TestPlanExecutionJobDetail = {
+  id: "execution-job-1",
+  status: "queued",
+  created_at: "2026-07-12T09:00:00",
+  updated_at: "2026-07-12T09:00:00",
+  started_at: null,
+  finished_at: null,
+  error: null,
+  request: {
+    plan: testPlan,
+    http_base_url: "http://testserver"
+  },
+  report: null
+};
+
+const workflowJob: TestAgentWorkflowJobDetail = {
+  id: "workflow-job-1",
+  status: "queued",
+  created_at: "2026-07-12T09:05:00",
+  updated_at: "2026-07-12T09:05:00",
+  started_at: null,
+  finished_at: null,
+  error: null,
+  timing: {
+    queue_wait_ms: null,
+    job_runtime_ms: null,
+    job_total_ms: null,
+    workflow_total_ms: null,
+    plan_generation_ms: null,
+    tool_execution_ms: null,
+    report_build_ms: null
+  },
+  request: {
+    generation_request: {
+      description: "登录测试计划",
+      source: "panel-test",
+      requirements: testPlan.requirements,
+      context: [],
+      max_steps: 8,
+      use_llm: false,
+      allow_llm_fallback: true
+    },
+    http_base_url: "http://testserver"
+  },
+  result: null
 };
 
 describe("panel behavior", () => {
@@ -154,6 +265,214 @@ describe("panel behavior", () => {
     await waitFor(() => expect(api.getGenerationJob).toHaveBeenCalledWith("job-1"));
     expect(onCasesReady).toHaveBeenCalledWith(cases);
     expect(await screen.findByText("TC-001")).toBeInTheDocument();
+  });
+
+  it("generates, executes, and submits test plan execution jobs", async () => {
+    const api = {
+      listTestPlanExecutionJobs: vi.fn().mockResolvedValue({
+        jobs: [],
+        limit: 50,
+        offset: 0
+      }),
+      listTestAgentWorkflowJobs: vi.fn().mockResolvedValue({
+        jobs: [],
+        limit: 50,
+        offset: 0
+      }),
+      generateTestPlan: vi.fn().mockResolvedValue(testPlan),
+      executeTestPlan: vi.fn().mockResolvedValue(executionReport),
+      submitTestPlanExecutionJob: vi.fn().mockResolvedValue(executionJob),
+      submitTestAgentWorkflowJob: vi.fn().mockResolvedValue(workflowJob),
+      exportTestPlanReport: vi.fn().mockResolvedValue(new Blob(["report"]))
+    } as unknown as ApiClient;
+
+    render(<TestPlanPanel api={api} />);
+
+    expect(await screen.findByText("暂无执行任务")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("需求描述"), {
+      target: { value: "  登录测试计划  " }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "生成计划" }));
+
+    await waitFor(() =>
+      expect(api.generateTestPlan).toHaveBeenCalledWith(
+        expect.objectContaining({ description: "登录测试计划" })
+      )
+    );
+    expect(await screen.findByText("TP-001")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "提交完整任务" }));
+    await waitFor(() =>
+      expect(api.submitTestAgentWorkflowJob).toHaveBeenCalledWith({
+        generation_request: expect.objectContaining({ description: "登录测试计划" }),
+        http_base_url: "http://testserver"
+      })
+    );
+    expect(await screen.findByText("Workflow 任务已提交：workflow-job-1")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "同步执行" }));
+    await waitFor(() =>
+      expect(api.executeTestPlan).toHaveBeenCalledWith({
+        plan: testPlan,
+        http_base_url: "http://testserver"
+      })
+    );
+    expect(await screen.findByText("执行报告")).toBeInTheDocument();
+    expect(screen.getByText("HTTP 200")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "导出 Markdown 报告" }));
+    await waitFor(() =>
+      expect(api.exportTestPlanReport).toHaveBeenCalledWith(executionReport, {
+        format: "markdown",
+        filename: "report-plan-login.md"
+      })
+    );
+    expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), "report-plan-login.md");
+
+    fireEvent.click(screen.getByRole("button", { name: "JSON" }));
+    await waitFor(() =>
+      expect(api.exportTestPlanReport).toHaveBeenCalledWith(executionReport, {
+        format: "json",
+        filename: "report-plan-login.json"
+      })
+    );
+    expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), "report-plan-login.json");
+
+    fireEvent.click(screen.getByRole("button", { name: "提交执行任务" }));
+    await waitFor(() =>
+      expect(api.submitTestPlanExecutionJob).toHaveBeenCalledWith({
+        plan: testPlan,
+        http_base_url: "http://testserver"
+      })
+    );
+    expect(await screen.findByText("执行任务已提交：execution-job-1")).toBeInTheDocument();
+  });
+
+  it("loads test plan execution jobs and renders report details", async () => {
+    const completedJob: TestPlanExecutionJobDetail = {
+      ...executionJob,
+      status: "succeeded",
+      report: executionReport
+    };
+    const api = {
+      listTestPlanExecutionJobs: vi.fn().mockResolvedValue({
+        jobs: [completedJob],
+        limit: 50,
+        offset: 0
+      }),
+      listTestAgentWorkflowJobs: vi.fn().mockResolvedValue({
+        jobs: [],
+        limit: 50,
+        offset: 0
+      }),
+      getTestPlanExecutionJob: vi.fn().mockResolvedValue(completedJob)
+    } as unknown as ApiClient;
+
+    render(<TestPlanPanel api={api} />);
+
+    expect(await screen.findByText("execution-job-1")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("execution-job-1").closest("tr") as HTMLTableRowElement);
+
+    await waitFor(() =>
+      expect(api.getTestPlanExecutionJob).toHaveBeenCalledWith("execution-job-1")
+    );
+    expect(
+      await screen.findAllByText("登录测试计划: executed 1/1 step(s); passed=1.")
+    ).not.toHaveLength(0);
+    expect(screen.getAllByText("继续补充异常路径。")).not.toHaveLength(0);
+  });
+
+  it("loads test agent workflow jobs and hydrates plan and report results", async () => {
+    const completedWorkflowJob: TestAgentWorkflowJobDetail = {
+      ...workflowJob,
+      status: "succeeded",
+      updated_at: "2026-07-12T09:06:00",
+      started_at: "2026-07-12T09:05:01",
+      finished_at: "2026-07-12T09:06:00",
+      timing: {
+        queue_wait_ms: 1000,
+        job_runtime_ms: 59000,
+        job_total_ms: 60000,
+        workflow_total_ms: 58000,
+        plan_generation_ms: 42000,
+        tool_execution_ms: 1500,
+        report_build_ms: 43
+      },
+      result: {
+        plan: testPlan,
+        report: executionReport,
+        timing: {
+          total_ms: 58000,
+          stages: [
+            {
+              name: "plan_generation",
+              started_at: "2026-07-12T09:05:01",
+              finished_at: "2026-07-12T09:05:43",
+              duration_ms: 42000,
+              details: {
+                used_llm: true,
+                used_fallback: false,
+                cache_status: "miss",
+                llm: {
+                  attempt_count: 1,
+                  retry_count: 0,
+                  total_duration_ms: 13948.734,
+                  last_status: "succeeded"
+                }
+              }
+            },
+            {
+              name: "tool_execution",
+              started_at: "2026-07-12T09:05:43",
+              finished_at: "2026-07-12T09:05:44.500",
+              duration_ms: 1500
+            },
+            {
+              name: "report_build",
+              started_at: "2026-07-12T09:05:44.500",
+              finished_at: "2026-07-12T09:05:44.543",
+              duration_ms: 43
+            }
+          ]
+        }
+      }
+    };
+    const api = {
+      listTestPlanExecutionJobs: vi.fn().mockResolvedValue({
+        jobs: [],
+        limit: 50,
+        offset: 0
+      }),
+      listTestAgentWorkflowJobs: vi.fn().mockResolvedValue({
+        jobs: [completedWorkflowJob],
+        limit: 50,
+        offset: 0
+      }),
+      getTestAgentWorkflowJob: vi.fn().mockResolvedValue(completedWorkflowJob)
+    } as unknown as ApiClient;
+
+    render(<TestPlanPanel api={api} />);
+
+    expect(await screen.findByText("workflow-job-1")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("workflow-job-1").closest("tr") as HTMLTableRowElement);
+
+    await waitFor(() =>
+      expect(api.getTestAgentWorkflowJob).toHaveBeenCalledWith("workflow-job-1")
+    );
+    expect(await screen.findAllByText("TP-001")).not.toHaveLength(0);
+    expect(screen.getByText("42.00s")).toBeInTheDocument();
+    expect(screen.getByText("1.50s")).toBeInTheDocument();
+    expect(screen.getByText("43ms")).toBeInTheDocument();
+    expect(screen.getByText("LLM尝试")).toBeInTheDocument();
+    expect(screen.getByText("LLM重试")).toBeInTheDocument();
+    expect(screen.getByText("LLM总耗时")).toBeInTheDocument();
+    expect(screen.getByText("13.95s")).toBeInTheDocument();
+    expect(screen.getByText("miss")).toBeInTheDocument();
+    expect(screen.getByText("succeeded")).toBeInTheDocument();
+    expect(
+      screen.getAllByText("登录测试计划: executed 1/1 step(s); passed=1.")
+    ).not.toHaveLength(0);
+    expect(screen.getAllByText("继续补充异常路径。")).not.toHaveLength(0);
   });
 
   it("resolves a pending generation gate from the history panel", async () => {

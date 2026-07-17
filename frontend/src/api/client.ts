@@ -16,7 +16,17 @@ import type {
   QueryResponse,
   RecordStatus,
   RequirementPoint,
-  TestCase
+  TestAgentWorkflowJobDetail,
+  TestAgentWorkflowJobListResponse,
+  TestAgentWorkflowRequest,
+  TestCase,
+  TestExecutionReport,
+  TestPlan,
+  TestPlanExecutionJobDetail,
+  TestPlanExecutionJobListResponse,
+  TestPlanExecutionRequest,
+  TestPlanGenerationRequest,
+  TestReportExportFormat
 } from "./types";
 
 export interface ApiConfig {
@@ -145,6 +155,79 @@ export class ApiClient {
         chunk_size: options.chunk_size ?? 900
       }
     });
+  }
+
+  generateTestPlan(request: TestPlanGenerationRequest): Promise<TestPlan> {
+    return this.request("/test-plans/generate", {
+      method: "POST",
+      body: request
+    });
+  }
+
+  executeTestPlan(request: TestPlanExecutionRequest): Promise<TestExecutionReport> {
+    return this.request("/test-plans/execute", {
+      method: "POST",
+      body: request
+    });
+  }
+
+  exportTestPlanReport(
+    report: TestExecutionReport,
+    options: {
+      format?: TestReportExportFormat;
+      filename?: string;
+    } = {}
+  ): Promise<Blob> {
+    return this.requestBlob("/test-plans/reports/export", {
+      method: "POST",
+      body: {
+        report,
+        format: options.format || "markdown",
+        filename: options.filename || undefined
+      }
+    });
+  }
+
+  submitTestPlanExecutionJob(
+    request: TestPlanExecutionRequest
+  ): Promise<TestPlanExecutionJobDetail> {
+    return this.request("/test-plans/execution-jobs", {
+      method: "POST",
+      body: request
+    });
+  }
+
+  listTestPlanExecutionJobs(params: {
+    limit?: number;
+    offset?: number;
+    status?: JobStatus | "";
+  }): Promise<TestPlanExecutionJobListResponse> {
+    return this.request(`/test-plans/execution-jobs${buildQueryString(params)}`);
+  }
+
+  getTestPlanExecutionJob(jobId: string): Promise<TestPlanExecutionJobDetail> {
+    return this.request(`/test-plans/execution-jobs/${encodeURIComponent(jobId)}`);
+  }
+
+  submitTestAgentWorkflowJob(
+    request: TestAgentWorkflowRequest
+  ): Promise<TestAgentWorkflowJobDetail> {
+    return this.request("/test-agent/workflow-jobs", {
+      method: "POST",
+      body: request
+    });
+  }
+
+  listTestAgentWorkflowJobs(params: {
+    limit?: number;
+    offset?: number;
+    status?: JobStatus | "";
+  }): Promise<TestAgentWorkflowJobListResponse> {
+    return this.request(`/test-agent/workflow-jobs${buildQueryString(params)}`);
+  }
+
+  getTestAgentWorkflowJob(jobId: string): Promise<TestAgentWorkflowJobDetail> {
+    return this.request(`/test-agent/workflow-jobs/${encodeURIComponent(jobId)}`);
   }
 
   listKnowledgeDocuments(params: {

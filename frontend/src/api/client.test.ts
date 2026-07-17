@@ -10,7 +10,13 @@ import {
   normalizeBaseUrl,
   normalizeErrorDetail
 } from "./client";
-import type { CoverageEvaluationResponse, GenerateRequest } from "./types";
+import type {
+  CoverageEvaluationResponse,
+  GenerateRequest,
+  TestExecutionReport,
+  TestPlan,
+  TestPlanGenerationRequest
+} from "./types";
 
 const REQUEST: GenerateRequest = {
   description: "生成登录接口测试用例",
@@ -48,6 +54,62 @@ const COVERAGE: CoverageEvaluationResponse = {
   ],
   warnings: ["uncovered_requirements"],
   recommendations: ["补充未覆盖验收点对应的测试用例：REQ-001。"]
+};
+
+const TEST_PLAN: TestPlan = {
+  id: "plan-login",
+  title: "登录测试计划",
+  source: "client-test",
+  requirements: [
+    {
+      id: "REQ-001",
+      title: "登录成功",
+      description: "登录成功",
+      keywords: ["登录成功"],
+      priority: "high",
+      source: "client-test"
+    }
+  ],
+  scope: {
+    in_scope: ["登录 API"],
+    out_of_scope: [],
+    assumptions: [],
+    risks: ["验证码过期"]
+  },
+  steps: [
+    {
+      id: "TP-001",
+      title: "登录成功",
+      objective: "调用登录接口",
+      requirement_ids: ["REQ-001"],
+      test_types: ["functional"],
+      priority: "high",
+      tool: "http",
+      tool_args: { path: "/login" },
+      success_criteria: ["返回 200"]
+    }
+  ]
+};
+
+const TEST_PLAN_REQUEST: TestPlanGenerationRequest = {
+  description: "登录测试计划",
+  source: "client-test",
+  requirements: TEST_PLAN.requirements,
+  context: [],
+  max_steps: 8,
+  use_llm: false,
+  allow_llm_fallback: true
+};
+
+const TEST_REPORT: TestExecutionReport = {
+  id: "report-plan-login",
+  plan_id: "plan-login",
+  status: "passed",
+  summary: "登录测试计划: executed 1/1 step(s); passed=1.",
+  tool_runs: [],
+  requirement_coverage: { "REQ-001": true },
+  defects: [],
+  recommendations: []
 };
 
 describe("api client helpers", () => {
@@ -176,6 +238,27 @@ describe("ApiClient requests", () => {
     expect(init.method).toBe("POST");
   });
 
+  it("exports test plan execution reports as blobs", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("markdown", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new ApiClient({ baseUrl: "/api/v1", apiKey: "test-key" });
+    const blob = await client.exportTestPlanReport(TEST_REPORT, {
+      format: "markdown",
+      filename: "report-plan-login.md"
+    });
+
+    expect(await blob.text()).toBe("markdown");
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/v1/test-plans/reports/export");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({
+      report: TEST_REPORT,
+      format: "markdown",
+      filename: "report-plan-login.md"
+    });
+  });
+
   it("sends pytest adapter options for pytest exports", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response("pytest", { status: 200 })
@@ -238,4 +321,104 @@ describe("ApiClient requests", () => {
       chunk_size: 500
     });
   });
+
+  it("sends test plan generation and execution requests", async () => {
+    const report = {
+      id: "report-plan-login",
+      plan_id: "plan-login",
+      status: "passed",
+      summary: "passed",
+      tool_runs: [],
+      requirement_coverage: { "REQ-001": true },
+      defects: [],
+      recommendations: []
+    };
+    const job = {
+      id: "job-1",
+      status: "queued",
+      created_at: "2026-07-12T00:00:00",
+      updated_at: "2026-07-12T00:00:00",
+      started_at: null,
+      finished_at: null,
+      error: null,
+      request: {
+        plan: TEST_PLAN,
+        http_base_url: "http://testserver"
+      },
+      report: null
+    };
+    const workflowJob = {
+      id: "workflow-job-1",
+      status: "queued",
+      created_at: "2026-07-12T00:00:00",
+      updated_at: "2026-07-12T00:00:00",
+      started_at: null,
+      finished_at: null,
+      error: null,
+      request: {
+        generation_request: TEST_PLAN_REQUEST,
+        http_base_url: "http://testserver"
+      },
+      result: null
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(TEST_PLAN))
+      .mockResolvedValueOnce(jsonResponse(report))
+      .mockResolvedValueOnce(jsonResponse(job, 202))
+      .mockResolvedValueOnce(jsonResponse({ jobs: [job], limit: 50, offset: 0 }))
+      .mockResolvedValueOnce(jsonResponse(job))
+      .mockResolvedValueOnce(jsonResponse(workflowJob, 202))
+      .mockResolvedValueOnce(
+        jsonResponse({ jobs: [workflowJob], limit: 20, offset: 0 })
+      )
+      .mockResolvedValueOnce(jsonResponse(workflowJob));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new ApiClient({ baseUrl: "/api/v1", apiKey: "test-key" });
+    await client.generateTestPlan(TEST_PLAN_REQUEST);
+    await client.executeTestPlan({
+      plan: TEST_PLAN,
+      http_base_url: "http://testserver"
+    });
+    await client.submitTestPlanExecutionJob({
+      plan: TEST_PLAN,
+      http_base_url: "http://testserver"
+    });
+    await client.listTestPlanExecutionJobs({ limit: 50, offset: 0, status: "queued" });
+    await client.getTestPlanExecutionJob("job-1");
+    await client.submitTestAgentWorkflowJob({
+      generation_request: TEST_PLAN_REQUEST,
+      http_base_url: "http://testserver"
+    });
+    await client.listTestAgentWorkflowJobs({ limit: 20, offset: 0, status: "queued" });
+    await client.getTestAgentWorkflowJob("workflow-job-1");
+
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/test-plans/generate");
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1].body))).toEqual(TEST_PLAN_REQUEST);
+    expect(fetchMock.mock.calls[1][0]).toBe("/api/v1/test-plans/execute");
+    expect(fetchMock.mock.calls[2][0]).toBe("/api/v1/test-plans/execution-jobs");
+    expect(fetchMock.mock.calls[3][0]).toBe(
+      "/api/v1/test-plans/execution-jobs?limit=50&offset=0&status=queued"
+    );
+    expect(fetchMock.mock.calls[4][0]).toBe("/api/v1/test-plans/execution-jobs/job-1");
+    expect(fetchMock.mock.calls[5][0]).toBe("/api/v1/test-agent/workflow-jobs");
+    expect(JSON.parse(String(fetchMock.mock.calls[5][1].body))).toEqual({
+      generation_request: TEST_PLAN_REQUEST,
+      http_base_url: "http://testserver"
+    });
+    expect(fetchMock.mock.calls[6][0]).toBe(
+      "/api/v1/test-agent/workflow-jobs?limit=20&offset=0&status=queued"
+    );
+    expect(fetchMock.mock.calls[7][0]).toBe(
+      "/api/v1/test-agent/workflow-jobs/workflow-job-1"
+    );
+  });
 });
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" }
+  });
+}

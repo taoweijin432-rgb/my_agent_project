@@ -10,7 +10,11 @@ export function getStatusLabel(status: string): string {
     running: "运行中",
     succeeded: "成功",
     success: "成功",
+    passed: "通过",
     failed: "失败",
+    blocked: "阻塞",
+    skipped: "跳过",
+    incomplete: "未完成",
     pending: "待处理",
     approved: "已批准",
     rejected: "已驳回"

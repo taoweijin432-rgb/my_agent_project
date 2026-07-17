@@ -10,10 +10,31 @@ export const TEST_CASE_TYPE_OPTIONS = [
 
 export type TestCaseType = (typeof TEST_CASE_TYPE_OPTIONS)[number]["value"];
 
+export const TEST_PLAN_PRIORITY_OPTIONS = [
+  { value: "low", label: "低" },
+  { value: "medium", label: "中" },
+  { value: "high", label: "高" },
+  { value: "critical", label: "关键" }
+] as const;
+
+export const TEST_TOOL_TYPE_OPTIONS = [
+  { value: "manual", label: "人工" },
+  { value: "http", label: "HTTP" },
+  { value: "pytest", label: "pytest" },
+  { value: "playwright", label: "Playwright" },
+  { value: "sql", label: "SQL" },
+  { value: "custom", label: "自定义" }
+] as const;
+
 export type JobStatus = "queued" | "running" | "succeeded" | "failed";
 export type RecordStatus = "success" | "failed";
 export type GateStatus = "pending" | "approved" | "rejected";
 export type ReviewGrade = "excellent" | "good" | "fair" | "poor";
+export type TestPlanPriority = (typeof TEST_PLAN_PRIORITY_OPTIONS)[number]["value"];
+export type TestToolType = (typeof TEST_TOOL_TYPE_OPTIONS)[number]["value"];
+export type ToolRunStatus = "queued" | "running" | "passed" | "failed" | "skipped" | "blocked";
+export type TestReportStatus = "passed" | "failed" | "blocked" | "incomplete";
+export type TestReportExportFormat = "markdown" | "json";
 
 export interface TestCase {
   id: string;
@@ -22,6 +43,166 @@ export interface TestCase {
   steps: string[];
   expected: string[];
   type: TestCaseType;
+}
+
+export interface TestPlanScope {
+  in_scope: string[];
+  out_of_scope: string[];
+  assumptions: string[];
+  risks: string[];
+}
+
+export interface TestPlanStep {
+  id: string;
+  title: string;
+  objective: string;
+  requirement_ids: string[];
+  test_types: TestCaseType[];
+  priority: TestPlanPriority;
+  tool: TestToolType;
+  tool_args: Record<string, unknown>;
+  success_criteria: string[];
+}
+
+export interface TestPlan {
+  id: string;
+  title: string;
+  source: string | null;
+  requirements: RequirementPoint[];
+  scope: TestPlanScope;
+  steps: TestPlanStep[];
+}
+
+export interface TestPlanGenerationRequest {
+  description: string;
+  source?: string | null;
+  requirements: RequirementPoint[];
+  context: KnowledgeChunk[];
+  max_steps: number;
+  use_llm: boolean;
+  allow_llm_fallback: boolean;
+}
+
+export interface ToolRun {
+  id: string;
+  plan_step_id: string;
+  tool: TestToolType;
+  status: ToolRunStatus;
+  command: string[];
+  started_at: string | null;
+  finished_at: string | null;
+  exit_code: number | null;
+  output_summary: string;
+  artifact_paths: string[];
+}
+
+export interface TestExecutionReport {
+  id: string;
+  plan_id: string;
+  status: TestReportStatus;
+  summary: string;
+  tool_runs: ToolRun[];
+  requirement_coverage: Record<string, boolean>;
+  defects: string[];
+  recommendations: string[];
+}
+
+export interface TestPlanExecutionRequest {
+  plan: TestPlan;
+  http_base_url: string;
+}
+
+export interface TestPlanExecutionJobError {
+  code: string;
+  message: string;
+}
+
+export interface TestPlanExecutionJobSummary {
+  id: string;
+  status: JobStatus;
+  created_at: string;
+  updated_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  error: TestPlanExecutionJobError | null;
+}
+
+export interface TestPlanExecutionJobDetail extends TestPlanExecutionJobSummary {
+  request: TestPlanExecutionRequest;
+  report: TestExecutionReport | null;
+}
+
+export interface TestPlanExecutionJobListResponse {
+  jobs: TestPlanExecutionJobSummary[];
+  limit: number;
+  offset: number;
+}
+
+export interface TestAgentWorkflowRequest {
+  generation_request: TestPlanGenerationRequest;
+  http_base_url: string;
+}
+
+export type TestAgentWorkflowStage = "plan_generation" | "tool_execution" | "report_build";
+
+export interface TestAgentWorkflowStageTiming {
+  name: TestAgentWorkflowStage;
+  started_at: string;
+  finished_at: string;
+  duration_ms: number;
+  status?: "succeeded" | "failed";
+  error_code?: string | null;
+  details?: Record<string, unknown>;
+}
+
+export interface TestAgentWorkflowTiming {
+  total_ms: number | null;
+  stages: TestAgentWorkflowStageTiming[];
+}
+
+export interface TestAgentWorkflowResult {
+  plan: TestPlan;
+  report: TestExecutionReport;
+  timing: TestAgentWorkflowTiming;
+}
+
+export interface TestAgentWorkflowJobError {
+  code: string;
+  message: string;
+  stage: TestAgentWorkflowStage | null;
+  timing: TestAgentWorkflowTiming;
+}
+
+export interface TestAgentWorkflowJobTiming {
+  queue_wait_ms: number | null;
+  job_runtime_ms: number | null;
+  job_total_ms: number | null;
+  workflow_total_ms: number | null;
+  plan_generation_ms: number | null;
+  tool_execution_ms: number | null;
+  report_build_ms: number | null;
+}
+
+export interface TestAgentWorkflowJobSummary {
+  id: string;
+  status: JobStatus;
+  created_at: string;
+  updated_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  error: TestAgentWorkflowJobError | null;
+  timing: TestAgentWorkflowJobTiming;
+}
+
+export interface TestAgentWorkflowJobDetail extends TestAgentWorkflowJobSummary {
+  request: TestAgentWorkflowRequest;
+  result: TestAgentWorkflowResult | null;
+}
+
+export interface TestAgentWorkflowJobListResponse {
+  jobs: TestAgentWorkflowJobSummary[];
+  limit: number;
+  offset: number;
 }
 
 export interface KnowledgeChunk {
