@@ -254,10 +254,16 @@ COMPOSE_PROJECT_NAME=agent_restore_test \
 - RQ/MySQL worker stability smoke：6 个 test plan execution job 全部 `succeeded`；报告状态 `passed=4`、`failed=2`；生成 artifact 6 份；队列告警 `ok=true`、alerts 为空；执行任务存储确认为 MySQL。
 - Test Agent workflow RQ/MySQL smoke：3 个 workflow job 全部 `succeeded`，报告和工具状态均为 `passed`；生成 artifact 3 份；覆盖需求 3 条；平均 queue wait 约 234 ms、最大约 347 ms；平均 job total 约 363 ms、最大约 432 ms；队列告警 `ok=true`、alerts 为空；workflow 任务存储确认为 MySQL。
 - 最终 Compose 网络内队列检查：`check_queue_alerts.py --json --max-rq-failed 0` 返回 `ok=true`，alerts 为空，generation、test agent workflow、test plan execution 均为 MySQL/RQ backend，queued/started/failed 均为 0。
+- 短窗口队列容量采样基线：重建 `api` 镜像后，用一次性 root 容器启动临时 RQ worker，并运行 `collect_queue_alert_samples.py --samples 5 --interval-seconds 2 --require-worker --max-rq-failed 0 --fail-on-warning`；5 次样本均为 `ok=true`，alerts 为空，三个队列 `worker_count` 最小值均为 1，active/queued/started/failed 最大值均为 0。
 
 最终队列检查证据保存在 `data/ops-drills/queue-alerts-20260718-rq-mysql-after-smoke.json`。本次运行镜像尚未包含新加的 `--output-json` 参数，因此 Compose 内证据通过 `--json` stdout 重定向保存；后续重建镜像后可直接使用 `--output-json`。
 
-阶段评估：正常。当前 Compose RQ/MySQL 链路已经覆盖中断恢复、worker 稳定性、Test Agent workflow 和最终队列告警闭环；下一步应进入更长窗口的容量观察和告警阈值校准。
+短窗口采样证据保存在：
+
+- `data/ops-drills/queue-alert-samples-20260718-rq-mysql-baseline.jsonl`
+- `data/ops-drills/queue-alert-summary-20260718-rq-mysql-baseline.json`
+
+阶段评估：正常。当前 Compose RQ/MySQL 链路已经覆盖中断恢复、worker 稳定性、Test Agent workflow、最终队列告警闭环和短窗口采样基线；真正阈值校准仍需要在预发或受控生产环境跑完整业务周期采样。
 
 ## 10. 运行检查
 
