@@ -247,6 +247,22 @@ docker compose -f docker-compose.yml -f docker-compose.mysql-rq.yml --profile my
 
 该脚本通过运行中的 HTTP API 提交 job，再由常驻 worker 消费；适合验证服务模式吞吐、排队耗时、MySQL 写回和队列告警闭环。
 
+双 worker 容量演练可以先扩容常驻 worker，再提高轮次和每轮 job 数：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.mysql-rq.yml --profile mysql up -d --scale worker=2 worker
+docker compose -f docker-compose.yml -f docker-compose.mysql-rq.yml --profile mysql exec api \
+  python scripts/smoke_service_mode_workflow_load.py \
+    --rounds 5 \
+    --jobs-per-round 8 \
+    --require-worker \
+    --max-rq-failed 0 \
+    --fail-over-max-queue-wait-ms 60000 \
+    --fail-over-max-job-total-ms 120000 \
+    --fail-under-throughput-jobs-per-second 0.01 \
+    --json
+```
+
 更长时长或并行 worker 演练可以直接运行脚本并提高轮次、每轮 job 数和 worker 数：
 
 ```bash
