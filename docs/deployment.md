@@ -139,35 +139,35 @@ IMAGE_TAG=smoke APP_DATA_MOUNT=smoke-data MODEL_CACHE_MOUNT=smoke-model-cache do
 需要演练 Redis/MySQL 短暂不可用和恢复时，先确认 MySQL profile 服务已启动，再显式运行可选 smoke。该脚本会短暂停止 Redis/MySQL，验证队列检查能失败到明确错误，再恢复服务并验证检查重新通过；不要在共享生产环境直接运行：
 
 ```bash
-APP_DATA_MOUNT=smoke-data MODEL_CACHE_MOUNT=smoke-model-cache docker compose --profile mysql up -d redis mysql
+docker compose -f docker-compose.yml -f docker-compose.mysql-rq.yml --profile mysql up -d redis mysql
 ./.venv/bin/python scripts/smoke_runtime_dependency_outage.py --json
 ```
 
 需要验证 Redis/RQ worker 在 MySQL profile 环境中连续执行测试计划 job 时，可以运行可选稳定性 smoke。该脚本会启动临时 worker 容器，提交多条 pytest adapter 执行 job，校验 job 全部进入终态、报告包含 passed/failed 混合结果，并确认每个 job 产生执行 artifact；脚本结束后会删除临时 worker。`DATABASE_BACKEND=mysql` 时，测试计划执行 job 状态也会写入 MySQL 的 `test_plan_execution_jobs` 表。
 
 ```bash
-APP_DATA_MOUNT=smoke-data MODEL_CACHE_MOUNT=smoke-model-cache docker compose --profile mysql up -d redis mysql
+docker compose -f docker-compose.yml -f docker-compose.mysql-rq.yml --profile mysql up -d redis mysql
 ./.venv/bin/python scripts/smoke_rq_mysql_worker_stability.py --json
 ```
 
 更长时长或并行 worker 演练可以显式指定轮次、每轮 job 数和 worker 数；每轮完成后脚本会检查测试计划执行队列 alert，确认无 active job、无 RQ failed registry 和无 MySQL/RQ 状态不一致：
 
 ```bash
-APP_DATA_MOUNT=smoke-data MODEL_CACHE_MOUNT=smoke-model-cache docker compose --profile mysql up -d redis mysql
+docker compose -f docker-compose.yml -f docker-compose.mysql-rq.yml --profile mysql up -d redis mysql
 ./.venv/bin/python scripts/smoke_rq_mysql_worker_stability.py --json --rounds 5 --jobs-per-round 6 --failure-count 2 --worker-count 2
 ```
 
 需要验证需求到报告的测试 Agent workflow job 在 MySQL profile 环境中由 Redis/RQ worker 执行时，可以运行可选实机 smoke。该脚本会启动临时 worker 容器，提交 `TestAgentWorkflowRequest`，校验 workflow job、HTTP adapter、执行 artifact、`TestExecutionReport` 和 workflow 队列 alert；脚本结束后会删除临时 worker。`DATABASE_BACKEND=mysql` 时，workflow job 状态会写入 MySQL 持久化路径。
 
 ```bash
-APP_DATA_MOUNT=smoke-data MODEL_CACHE_MOUNT=smoke-model-cache docker compose --profile mysql up -d redis mysql
+docker compose -f docker-compose.yml -f docker-compose.mysql-rq.yml --profile mysql up -d redis mysql
 ./.venv/bin/python scripts/smoke_test_agent_workflow_rq_mysql.py --json
 ```
 
 更长时长或并行 worker 演练可以提高轮次、每轮 job 数和 worker 数；每轮完成后脚本会检查 workflow 队列 alert，确认无 active job、无 RQ failed registry 和无 MySQL/RQ 状态不一致。脚本会输出 `throughput`，可用 `--fail-over-max-queue-wait-ms` 和 `--fail-under-throughput-jobs-per-second` 增加吞吐门禁：
 
 ```bash
-APP_DATA_MOUNT=smoke-data MODEL_CACHE_MOUNT=smoke-model-cache docker compose --profile mysql up -d redis mysql
+docker compose -f docker-compose.yml -f docker-compose.mysql-rq.yml --profile mysql up -d redis mysql
 ./.venv/bin/python scripts/smoke_test_agent_workflow_rq_mysql.py --json \
   --rounds 2 \
   --jobs-per-round 2 \

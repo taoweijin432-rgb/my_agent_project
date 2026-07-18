@@ -48,6 +48,18 @@ MYSQL_PASSWORD=your_agent_password
 docker compose --profile mysql up -d --build
 ```
 
+如果需要让 API 和 worker 在 Compose 服务模式下同时使用 MySQL + RQ，而不改本地 `.env.runtime`，使用 MySQL/RQ override：
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.mysql-rq.yml \
+  --profile mysql \
+  up -d --build mysql redis api worker
+```
+
+override 会把 API 和 worker 的 `DATABASE_BACKEND`、`DATABASE_URL`、`GENERATION_JOB_QUEUE_BACKEND`、`REDIS_URL` 和 `RQ_QUEUE_NAME` 对齐。默认连接 Compose 内部 `mysql:3306` 和 `redis:6379`；需要替换时使用 `COMPOSE_MYSQL_DATABASE_URL`、`COMPOSE_REDIS_URL` 和 `COMPOSE_RQ_QUEUE_NAME`。
+
 确认容器状态：
 
 ```bash
@@ -255,6 +267,7 @@ COMPOSE_PROJECT_NAME=agent_restore_test \
 - Test Agent workflow RQ/MySQL smoke：3 个 workflow job 全部 `succeeded`，报告和工具状态均为 `passed`；生成 artifact 3 份；覆盖需求 3 条；平均 queue wait 约 234 ms、最大约 347 ms；平均 job total 约 363 ms、最大约 432 ms；队列告警 `ok=true`、alerts 为空；workflow 任务存储确认为 MySQL。
 - 最终 Compose 网络内队列检查：`check_queue_alerts.py --json --max-rq-failed 0` 返回 `ok=true`，alerts 为空，generation、test agent workflow、test plan execution 均为 MySQL/RQ backend，queued/started/failed 均为 0。
 - 短窗口队列容量采样基线：重建 `api` 镜像后，用一次性 root 容器启动临时 RQ worker，并运行 `collect_queue_alert_samples.py --samples 5 --interval-seconds 2 --require-worker --max-rq-failed 0 --fail-on-warning`；5 次样本均为 `ok=true`，alerts 为空，三个队列 `worker_count` 最小值均为 1，active/queued/started/failed 最大值均为 0。
+- 常驻服务模式 MySQL/RQ 对齐验证：使用 `docker-compose.mysql-rq.yml` 重建 API 和 worker 后，`check_readiness.py --json` 返回 `ready=true`，数据库为 MySQL，队列为 Redis/RQ；通过 API 提交 1 个 deterministic Test Agent workflow job，状态从 `queued` 进入 `succeeded`，job 写入 MySQL，queue wait 约 73 ms，job total 约 96 ms；随后 `check_queue_alerts.py --json --require-worker --max-rq-failed 0` 返回 `ok=true`，alerts 为空，三类队列均为 MySQL/RQ backend，worker_count=1，queued/started/failed 均为 0。
 
 最终队列检查证据保存在 `data/ops-drills/queue-alerts-20260718-rq-mysql-after-smoke.json`。本次运行镜像尚未包含新加的 `--output-json` 参数，因此 Compose 内证据通过 `--json` stdout 重定向保存；后续重建镜像后可直接使用 `--output-json`。
 
@@ -262,8 +275,10 @@ COMPOSE_PROJECT_NAME=agent_restore_test \
 
 - `data/ops-drills/queue-alert-samples-20260718-rq-mysql-baseline.jsonl`
 - `data/ops-drills/queue-alert-summary-20260718-rq-mysql-baseline.json`
+- `data/ops-drills/service-mode-workflow-20260718-mysql-rq.json`
+- `data/ops-drills/queue-alerts-20260718-service-mode-mysql-rq.json`
 
-阶段评估：正常。当前 Compose RQ/MySQL 链路已经覆盖中断恢复、worker 稳定性、Test Agent workflow、最终队列告警闭环和短窗口采样基线；真正阈值校准仍需要在预发或受控生产环境跑完整业务周期采样。
+阶段评估：正常。当前 Compose RQ/MySQL 链路已经覆盖中断恢复、worker 稳定性、Test Agent workflow、最终队列告警闭环、短窗口采样基线和常驻 API/worker 服务模式对齐；真正阈值校准仍需要在预发或受控生产环境跑完整业务周期采样。
 
 ## 10. 运行检查
 

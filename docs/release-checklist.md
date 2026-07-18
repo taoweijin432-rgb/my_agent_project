@@ -218,6 +218,18 @@ export LLM_RETRY_BACKOFF_SECONDS=0.5
 
 该检查会调用 `scripts/smoke_test_agent_workflow_rq_mysql.py`，在 MySQL profile 环境中启动临时 RQ worker，从 `TestAgentWorkflowRequest` 提交后台 workflow job，验证真实 API、Redis、MySQL、RQ worker、HTTP adapter、artifact 产出、`TestExecutionReport`、耗时汇总、吞吐汇总和 workflow 队列 alert。它依赖 Docker、Redis、MySQL profile 和当前镜像，只适合人工演练或受控环境，不放入默认 CI。`DATABASE_BACKEND=mysql` 时，该检查会验证 workflow job 状态写入 MySQL 持久化路径。
 
+常驻服务模式验证使用 Compose override 同时对齐 API 和 worker：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.mysql-rq.yml --profile mysql up -d --build mysql redis api worker
+docker compose -f docker-compose.yml -f docker-compose.mysql-rq.yml --profile mysql exec api \
+  python scripts/check_readiness.py --json
+docker compose -f docker-compose.yml -f docker-compose.mysql-rq.yml --profile mysql exec api \
+  python scripts/check_queue_alerts.py --json --require-worker --max-rq-failed 0
+```
+
+该路径验证常驻 API 和 worker 使用同一个 MySQL/RQ 配置，而不是只依赖 smoke 脚本启动的临时 worker。
+
 更长时长或并行 worker 演练可以直接运行脚本并提高轮次、每轮 job 数和 worker 数：
 
 ```bash

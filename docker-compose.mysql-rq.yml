@@ -1,0 +1,16 @@
+services:
+  api:
+    environment:
+      DATABASE_BACKEND: mysql
+      DATABASE_URL: ${COMPOSE_MYSQL_DATABASE_URL:-mysql://agent_user:your_agent_password@mysql:3306/agent?charset=utf8mb4}
+      GENERATION_JOB_QUEUE_BACKEND: rq
+      REDIS_URL: ${COMPOSE_REDIS_URL:-redis://redis:6379/0}
+      RQ_QUEUE_NAME: ${COMPOSE_RQ_QUEUE_NAME:-generation-compose-smoke}
+
+  worker:
+    environment:
+      DATABASE_BACKEND: mysql
+      DATABASE_URL: ${COMPOSE_MYSQL_DATABASE_URL:-mysql://agent_user:your_agent_password@mysql:3306/agent?charset=utf8mb4}
+      GENERATION_JOB_QUEUE_BACKEND: rq
+      REDIS_URL: ${COMPOSE_REDIS_URL:-redis://redis:6379/0}
+      RQ_QUEUE_NAME: ${COMPOSE_RQ_QUEUE_NAME:-generation-compose-smoke}

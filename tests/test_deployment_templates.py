@@ -96,6 +96,21 @@ def test_docker_compose_uses_runtime_env_and_persistent_volumes() -> None:
     assert "http://127.0.0.1:8000/health" in content
 
 
+def test_mysql_rq_compose_override_aligns_api_and_worker() -> None:
+    content = (PROJECT_ROOT / "docker-compose.mysql-rq.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "api:" in content
+    assert "worker:" in content
+    assert content.count("DATABASE_BACKEND: mysql") == 2
+    assert content.count("GENERATION_JOB_QUEUE_BACKEND: rq") == 2
+    assert content.count("COMPOSE_MYSQL_DATABASE_URL") == 2
+    assert content.count("COMPOSE_REDIS_URL") == 2
+    assert content.count("COMPOSE_RQ_QUEUE_NAME") == 2
+    assert "generation-compose-smoke" in content
+
+
 def test_dockerfile_has_healthcheck() -> None:
     content = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
 
