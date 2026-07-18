@@ -118,6 +118,8 @@ python scripts/check_queue_alerts.py --json \
 
 输出文件包含 `generated_at`、阈值、三个队列的 metrics、alerts 和原始 snapshot。文件可作为 Redis/MySQL outage、RQ worker stability 和 workflow RQ/MySQL smoke 的演练附件；真实环境的历史记录应保存在团队运维仓库或受控对象存储，不建议提交到本代码仓库。
 
+`check_queue_alerts.py` 默认使用 `max_worker_heartbeat_age_seconds=900`，避免 RQ 空闲 worker 的维护间隔造成误报；生产环境可按实际 worker heartbeat 采样结果显式收紧。
+
 ## 队列容量观察采样
 
 单次快照只能证明当前时刻健康，不能代表业务周期容量。预发或受控生产环境可以用采样脚本按固定间隔保存 JSONL，再基于 observed maxima 校准阈值：

@@ -88,8 +88,10 @@ def test_docker_compose_uses_runtime_env_and_persistent_volumes() -> None:
     assert "scripts/run_generation_worker.py" in content
     assert "scripts/check_runtime_paths.py" in content
     assert "disable: true" in content
-    assert "${APP_DATA_MOUNT:-./data}:/app/data" in content
-    assert "${MODEL_CACHE_MOUNT:-./.model_cache/huggingface}:/app/.model_cache/huggingface" in content
+    assert "${APP_DATA_MOUNT:-app-data}:/app/data" in content
+    assert "${MODEL_CACHE_MOUNT:-app-model-cache}:/app/.model_cache/huggingface" in content
+    assert "app-data:" in content
+    assert "app-model-cache:" in content
     assert "restart: unless-stopped" in content
     assert "http://127.0.0.1:8000/health" in content
 

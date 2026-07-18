@@ -247,7 +247,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-rq-queued", type=int)
     parser.add_argument("--max-rq-started", type=int)
     parser.add_argument("--max-rq-failed", type=int, default=0)
-    parser.add_argument("--max-worker-heartbeat-age-seconds", type=int, default=300)
+    parser.add_argument("--max-worker-heartbeat-age-seconds", type=int, default=900)
     parser.add_argument("--require-worker", action="store_true")
     parser.add_argument("--fail-on-warning", action="store_true")
     parser.add_argument("--headroom-ratio", type=_non_negative_float, default=0.25)

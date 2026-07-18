@@ -8,6 +8,7 @@ from scripts.check_queue_alerts import (
     evaluate_snapshot,
     extract_metrics,
     main,
+    parse_args,
     _queue_names,
 )
 
@@ -102,6 +103,11 @@ def test_queue_names_include_test_agent_workflow() -> None:
         "test_plan_execution",
     ]
     assert _queue_names("test-agent-workflow") == ["test_agent_workflow"]
+
+
+def test_default_worker_heartbeat_threshold_allows_idle_rq_maintenance_interval() -> None:
+    assert QueueAlertThresholds().max_worker_heartbeat_age_seconds == 900
+    assert parse_args([]).max_worker_heartbeat_age_seconds == 900
 
 
 def test_main_exits_nonzero_for_error_alert(monkeypatch, capsys) -> None:

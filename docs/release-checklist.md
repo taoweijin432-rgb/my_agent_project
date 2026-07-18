@@ -364,7 +364,7 @@ CI 验证：
 推荐顺序：
 
 1. 生产数据库：补齐 MySQL 连接池参数、长时间稳定性验证、高并发验证，并评估是否切为默认 backend。
-2. Docker 生产硬化：完整 ML/RAG 镜像构建验证、非 root bind mount 权限说明、镜像体积和缓存策略。
+2. Docker 生产硬化：完整 ML/RAG 镜像构建验证、镜像体积和缓存策略；Compose 已默认使用 named volume，非 root bind mount 权限说明已补齐。
 3. Agent 框架：在默认 LangGraph backend 上补齐 checkpoint、interrupt、人审节点和 trace 能力，并保留 `local` 回滚策略。
 4. RAG 增强：增加 metadata filter、rerank、固定评估集和召回指标。
 5. 可观测性：把内部 metrics 和告警规则接入正式监控系统，继续补请求量、失败率、LLM usage、成本和耗时分布。

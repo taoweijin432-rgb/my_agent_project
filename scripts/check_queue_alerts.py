@@ -31,7 +31,7 @@ class QueueAlertThresholds:
     max_rq_queued: int | None = None
     max_rq_started: int | None = None
     max_rq_failed: int | None = 0
-    max_worker_heartbeat_age_seconds: int | None = 300
+    max_worker_heartbeat_age_seconds: int | None = 900
     require_worker: bool = False
 
 
@@ -259,7 +259,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-rq-queued", type=int)
     parser.add_argument("--max-rq-started", type=int)
     parser.add_argument("--max-rq-failed", type=int, default=0)
-    parser.add_argument("--max-worker-heartbeat-age-seconds", type=int, default=300)
+    parser.add_argument("--max-worker-heartbeat-age-seconds", type=int, default=900)
     parser.add_argument("--require-worker", action="store_true")
     parser.add_argument("--fail-on-warning", action="store_true")
     parser.add_argument("--json", action="store_true", help="Print JSON output.")

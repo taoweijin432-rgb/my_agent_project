@@ -225,7 +225,7 @@ docker stop agent-redis
 
 本机开发/演示运行方式已经验证通过。Docker Compose 轻量 Redis/RQ smoke、MySQL store smoke 和 Redis/RQ + MySQL worker smoke 已验证通过；Redis/MySQL 默认没有宿主端口映射，Compose 内部通过 `redis:6379` 和 `mysql:3306` 访问。完整 ML/RAG 镜像构建仍受 `chromadb`、`numpy`、`onnxruntime` 等依赖下载影响，应在网络稳定环境单独验证。
 
-smoke 验证复用统一 `docker-compose.yml`，通过环境变量把运行数据切到 Docker named volume；依赖仍统一来自 `requirements.txt`。
+smoke 验证复用统一 `docker-compose.yml`；Compose 默认使用 Docker named volume 保存运行数据和模型缓存，依赖仍统一来自 `requirements.txt`。如需隔离 smoke 数据卷，可显式覆盖 volume 名称：
 
 ```bash
 IMAGE_TAG=smoke APP_DATA_MOUNT=smoke-data MODEL_CACHE_MOUNT=smoke-model-cache docker compose build
