@@ -363,4 +363,4 @@ MySQL 初始化、备份、恢复文档、一次恢复演练、完整 Compose AP
 - RQ `queue_count=0`、`failed_count=0`、`finished_count=5`。
 - 重启 API/worker 后仍可查询最后一个 job 的失败状态和 `record_id`。
 
-总评估：正常。MySQL backend 已具备可操作的初始化、备份和恢复流程，并已完成一次备份恢复演练、完整 Compose API/worker 镜像 smoke、stale 恢复 smoke、多任务稳定性 smoke、Redis/MySQL 短暂不可用恢复验证和 Test Agent workflow RQ/MySQL 验证；真正切生产默认前仍建议补更长时长运行、并发容量观察和告警阈值校准。
+总评估：正常。MySQL backend 已具备可操作的初始化、备份和恢复流程，并已完成一次备份恢复演练、完整 Compose API/worker 镜像 smoke、stale 恢复 smoke、多任务稳定性 smoke、Redis/MySQL 短暂不可用恢复验证、Test Agent workflow RQ/MySQL 验证、常驻 API/worker service-mode 对齐和 12 job 多轮负载 smoke；真正切生产默认前仍建议补更长时长运行、并发容量观察和告警阈值校准。

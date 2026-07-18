@@ -1,6 +1,6 @@
 # 项目当前评估
 
-评估日期：2026-07-17
+评估日期：2026-07-18
 
 ## 1. 总体结论
 
@@ -32,7 +32,7 @@
 
 质量和验证：
 
-- 默认发布检查覆盖 RAG 固定评估、核心 pytest、测试 Agent 契约模块 mypy 类型检查、stale job 恢复、监控 metrics/alert 模板验证、readiness、队列观测和 `git diff --check`。
+- 默认发布检查覆盖 RAG 固定评估、核心 pytest、测试 Agent 契约模块 mypy 类型检查、stale job 恢复、监控 metrics/alert 模板验证、readiness、队列观测、运行结果脱敏回归、服务模式负载 smoke 单测和 `git diff --check`。
 - 测试 Agent workflow 已具备真实 LLM strict workflow eval：2026-07-15 当前默认模型 `glm-4-flash` 已覆盖当前 15 条需求到报告样本，原 11 条全量 strict eval 与新增 4 条在 `json_assertions` 新契约下分批 strict eval 均通过，所有质量门禁为 1.0，无 fallback、无 retry、无 timeout/429；模型质量结论以该真实路径为准。
 - API 路由、导出和中间件测试已移除 FastAPI `TestClient` 依赖，适合沙箱环境运行。
 - 前端已接入 Vitest，覆盖配置、API client、下载、生成请求、需求解析、格式化和关键面板行为。
@@ -58,11 +58,11 @@
 
 ## 4. 关键缺口
 
-### 4.1 敏感信息脱敏闭环
+### 4.1 真实敏感数据和密钥治理
 
-artifact 落盘已做统一脱敏，但运行结果还没有完全闭环。`ToolRun.output_summary`、HTTP JSON assertion 失败信息、pytest 输出摘要、报告 evidence、Markdown/JSON 导出和部分异常日志仍可能带出 token、cookie、password、api key 或业务敏感响应片段。
+运行结果统一脱敏已经完成：共享 redaction 工具覆盖 artifact、`ToolRun.output_summary`、HTTP JSON assertion 失败信息、pytest 输出摘要、报告 evidence、Markdown/JSON 导出、API 返回、历史记录和异常日志，回归测试已纳入默认发布检查。
 
-这是当前最小但优先级最高的安全补口：应把 artifact 脱敏能力抽成共享 redaction 工具，并应用到 API 返回、报告、历史记录和日志输出路径。
+剩余风险不再是应用内输出脱敏闭环，而是生产数据治理：真实密钥托管、生产样本准入、敏感数据分级、删除审计、备份介质保护和发布前 secret scanning 仍需制度化。
 
 ### 4.2 权限和租户隔离
 
@@ -82,7 +82,7 @@ artifact 落盘已做统一脱敏，但运行结果还没有完全闭环。`Tool
 
 ### 4.6 生产数据库和队列稳定性
 
-MySQL 与 Redis/RQ 已具备可操作基线，但默认仍是 SQLite/in-memory。Redis/MySQL 短暂不可用演练、队列告警阈值、测试计划执行 job MySQL 持久化和 MySQL 连接超时参数已补齐；真正生产化前还需要更长时长稳定性、备份恢复定期验证、连接池取舍和容量评估。
+MySQL 与 Redis/RQ 已具备可操作基线，但默认仍是 SQLite/in-memory。Redis/MySQL 短暂不可用演练、队列告警阈值、测试计划执行 job MySQL 持久化、测试 Agent workflow MySQL/RQ service-mode smoke、12 job 多轮负载 smoke 和 MySQL 连接超时参数已补齐；真正生产化前还需要更长时长稳定性、备份恢复定期验证、连接池取舍和容量评估。
 
 ### 4.7 队列一致性和失败恢复
 
@@ -108,12 +108,11 @@ queued/running stale 恢复已经覆盖测试计划执行和测试 Agent workflo
 
 | 优先级 | 风险 | 当前状态 | 建议 |
 | --- | --- | --- | --- |
-| P0 | 运行结果敏感信息泄漏 | artifact 已脱敏，但 output summary、报告 evidence、导出和日志仍可能带出敏感响应片段 | 下一步优先做共享 redaction，并覆盖 API 返回、报告、历史和日志 |
-| P0 | 真实密钥或私有资料误发布 | 已通过 ignore、文档整合和提交前扫描降低风险 | 发布前继续做敏感信息扫描，保留 `.env.runtime`、缓存和 benchmark history 的 ignore |
+| P0 | 真实密钥或私有资料误发布 | 运行结果统一脱敏、ignore 和文档整合已降低风险，但生产密钥托管和发布前 secret scanning 仍需制度化 | 发布前继续做敏感信息扫描，保留 `.env.runtime`、缓存和 benchmark history 的 ignore，并把真实密钥交给部署侧密钥管理 |
 | P1 | 公网部署权限不足 | API key 可用，但无用户/RBAC/项目隔离/审计 | 公网前必须加网关、TLS、用户、权限和审计设计 |
 | P1 | 线上不可观测 | 有 readiness/queue check、内部 metrics、告警模板、示例配置和离线验证，无正式采集/告警 | 接入真实 Prometheus/Alertmanager，校准阈值并演练通知 |
 | P1 | 真实模型质量随模型切换漂移 | 已有真实 LLM strict eval 和 benchmark 入口，样本仍需扩展 | 模型切换后必须跑真实 strict eval，并记录耗时、retry、timeout 和 429 趋势 |
-| P1 | 生产数据库和队列容量未知 | MySQL/RQ smoke 可用，但长时、高并发和组合故障验证不足 | 做更长时长、多 worker、多轮任务和依赖抖动演练 |
+| P1 | 生产数据库和队列容量未知 | MySQL/RQ service-mode 和 12 job 多轮负载 smoke 可用，但长时、高并发和组合故障验证不足 | 做更长时长、多 worker、受控并发和依赖抖动演练 |
 | P1 | 队列一致性和失败恢复 | stale active job 恢复已补，RQ/DB 组合异常仍需实机验证 | 定期运行 Redis/MySQL outage、RQ worker stability 和 workflow RQ/MySQL smoke |
 | P2 | RAG 质量随知识库变化漂移 | 有固定评估，无线上召回监控和 rerank/hybrid 对比 | 扩评估集，记录召回趋势，评估 metadata filter、rerank 和 hybrid search |
 | P2 | 部署安全依赖外部环境 | 应用内配置校验已加强，TLS/WAF/密钥托管/网络隔离不在应用内 | 生产部署必须走网关、HTTPS、集中密钥管理和网络隔离 |
@@ -127,10 +126,10 @@ queued/running stale 恢复已经覆盖测试计划执行和测试 Agent workflo
 
 第一优先级：安全和生产运行治理
 
-- 先完成运行结果统一脱敏：覆盖 `ToolRun.output_summary`、HTTP JSON assertion mismatch、pytest summary、报告 evidence、Markdown/JSON 导出和异常日志。
-- 将内部 metrics JSON/Prometheus 输出接入真实监控系统，并按真实流量校准业务阶段失败率和耗时告警阈值。
-- 为队列积压、RQ failed registry、生成失败率和 readiness 失败定义告警规则。
-- 做 Redis/MySQL 短暂不可用演练，并把结果写入运维文档。
+- 将内部 metrics JSON/Prometheus 输出接入真实监控系统，并按完整业务周期校准业务阶段失败率、耗时和队列阈值。
+- 把 12 job service-mode smoke 扩展为更长时长、多 worker、受控并发和依赖抖动演练，并把结果写入运维证据。
+- 为队列积压、RQ failed registry、生成失败率、service-mode worker 缺失和 readiness 失败定义正式告警路由。
+- 保持运行结果脱敏回归和发布前 secret scanning，避免真实样本或密钥进入仓库、日志和 benchmark history。
 - 把真实 LLM strict workflow eval 和 benchmark history 纳入模型切换检查，记录通过率、失败码、timeout、retry、429 和阶段耗时。
 
 第二优先级：权限和数据边界
@@ -151,7 +150,7 @@ queued/running stale 恢复已经覆盖测试计划执行和测试 Agent workflo
 - 不建议立刻把 MySQL 切为默认 backend；应先完成更长时长稳定性和故障演练。
 - 不建议继续大规模重构前端 layout；除非有明确交互问题，否则保持当前组件边界即可。
 - 不建议直接做多租户 SaaS 化；应先补权限模型、审计和部署治理。
-- 不建议在运行结果脱敏闭环完成前处理真实业务敏感响应；内部演示也应使用假数据或脱敏环境。
+- 即使运行结果脱敏闭环已完成，也不建议直接用真实生产敏感响应做内部演示；应使用假数据、脱敏环境或受控样本。
 - 不建议把真实 LLM smoke 放入默认 CI；它会消耗额度且受网络和模型状态影响。但重要发布、模型切换或 Prompt 契约调整后，不建议只看离线测评，必须手动跑真实 LLM strict workflow eval。
 
 ## 8. 评估结论

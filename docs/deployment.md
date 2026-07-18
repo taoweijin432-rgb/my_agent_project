@@ -337,7 +337,7 @@ docker compose --profile mysql run --rm -T \
   api python scripts/init_mysql.py
 ```
 
-MySQL backend 所需 `PyMySQL` 已纳入统一 `requirements.txt`。本机 Python 只有在 MySQL 显式发布宿主端口时才使用 `127.0.0.1:3306`，Compose 容器内部使用服务名 `mysql:3306`。应用会为 PyMySQL 设置连接、读、写超时，默认分别是 10/30/30 秒；也可以在 `DATABASE_URL` 中追加 `connect_timeout`、`read_timeout`、`write_timeout` 查询参数覆盖。初始化、备份、恢复、连接超时和恢复演练步骤见 [MySQL 初始化、备份与恢复](mysql-operations.md)。当前 MySQL backend 已通过本机 Docker MySQL store smoke、Redis/RQ worker smoke、完整 Compose API/worker 镜像 smoke、stale 恢复 smoke、5 任务稳定性 smoke、Redis/MySQL 短暂不可用演练脚本、RQ worker stability smoke、测试计划执行 job MySQL 持久化验证，以及多轮/多 worker 稳定性 smoke 入口；生产默认切换前仍建议做更长时长运行验证和高并发验证。
+MySQL backend 所需 `PyMySQL` 已纳入统一 `requirements.txt`。本机 Python 只有在 MySQL 显式发布宿主端口时才使用 `127.0.0.1:3306`，Compose 容器内部使用服务名 `mysql:3306`。应用会为 PyMySQL 设置连接、读、写超时，默认分别是 10/30/30 秒；也可以在 `DATABASE_URL` 中追加 `connect_timeout`、`read_timeout`、`write_timeout` 查询参数覆盖。初始化、备份、恢复、连接超时和恢复演练步骤见 [MySQL 初始化、备份与恢复](mysql-operations.md)。当前 MySQL backend 已通过本机 Docker MySQL store smoke、Redis/RQ worker smoke、完整 Compose API/worker 镜像 smoke、stale 恢复 smoke、5 任务稳定性 smoke、Redis/MySQL 短暂不可用演练脚本、RQ worker stability smoke、测试计划执行 job MySQL 持久化验证、测试 Agent workflow MySQL/RQ smoke、常驻 API/worker service-mode 对齐，以及 12 job 多轮负载 smoke；生产默认切换前仍建议做更长时长运行验证和高并发验证。
 
 ## 4. 知识库导入
 

@@ -470,7 +470,7 @@ Agent 不能只看“能不能生成”，要评估多个层面。
 
 设计边界是：API 层只负责接单，worker 后台复用原有生成链路，因此不会绕过 RAG、Reviewer、门控、usage 和历史记录。当前支持 `GENERATION_JOB_QUEUE_BACKEND=in_memory|rq`。`in_memory` 适合本地开发；`rq` 使用 Redis/RQ 派发任务，并把任务状态写入当前 `DATABASE_BACKEND` 对应的数据库。`GENERATION_JOB_MAX_QUEUE_SIZE` 控制提交背压，队列满时返回 429，避免无限堆积。
 
-这能提升的是“接单 QPS”和长任务承载能力，不代表真实生成吞吐无限提升。真实吞吐仍受模型供应商 QPS/TPM 限流、本机 CPU/内存、Chroma 检索耗时和 worker 数影响。Redis/RQ 解决了 worker 与 API 进程拆分问题；默认 SQLite 状态库仍更适合单机部署，MySQL backend 已实现并通过备份恢复、Compose 模板、完整 Compose smoke、stale 恢复 smoke 和 5 任务稳定性 smoke，但多实例生产还需要补队列可观测性、Redis/MySQL 短暂不可用演练和更长时长运行验证。
+这能提升的是“接单 QPS”和长任务承载能力，不代表真实生成吞吐无限提升。真实吞吐仍受模型供应商 QPS/TPM 限流、本机 CPU/内存、Chroma 检索耗时和 worker 数影响。Redis/RQ 解决了 worker 与 API 进程拆分问题；默认 SQLite 状态库仍更适合单机部署，MySQL backend 已实现并通过备份恢复、Compose 模板、完整 Compose smoke、stale 恢复 smoke、5 任务稳定性 smoke、Redis/MySQL 短暂不可用演练、队列告警检查、测试 Agent workflow MySQL/RQ smoke 和常驻服务模式 12 job 负载 smoke，但多实例生产还需要补更长时长、更高并发和正式告警阈值校准。
 
 ## 10. 工程特性概述
 
