@@ -170,14 +170,14 @@ estimate_usage
 - 保留 API 模型：`GenerationJobDetail`、`GenerationJobSummary`、`GenerationJobError`。
 - 保留 API 路径：`/test-cases/generation-jobs`。
 - 已新增 Redis/RQ adapter，并把任务状态写入配置化数据库 backend。
-- 默认 SQLite 适合单机部署；MySQL backend 已实现并通过 Redis/RQ worker smoke、备份恢复、Compose 模板、stale 恢复 smoke、5 任务稳定性 smoke、Redis/MySQL 短暂不可用演练脚本、RQ worker stability smoke、queue alert 阈值检查、测试计划执行 job MySQL 持久化验证、测试 Agent workflow MySQL/RQ smoke、常驻服务模式 12 job 负载 smoke 和 2 worker 40 job 负载演练；生产默认切换仍需补更长时长和更高并发运行验证。
+- 默认 SQLite 适合单机部署；MySQL backend 已实现并通过 Redis/RQ worker smoke、备份恢复、Compose 模板、stale 恢复 smoke、5 任务稳定性 smoke、Redis/MySQL 短暂不可用演练脚本、RQ worker stability smoke、queue alert 阈值检查、测试计划执行 job MySQL 持久化验证、测试 Agent workflow MySQL/RQ smoke、常驻服务模式 12 job 负载 smoke、2 worker 40 job 负载演练和 Redis/MySQL 依赖抖动恢复演练；生产默认切换仍需补更长时长和更高并发运行验证。
 
 MySQL 现状：
 
 - 已保留 `GenerationHistoryStore` 对外方法语义，并新增 repository protocol/factory。
 - 已将 SQLite 运行表结构映射为 `migrations/mysql/001_initial.sql`。
 - 已把生成历史、门控处理、异步任务状态纳入 MySQL backend。
-- 当前默认仍是 `DATABASE_BACKEND=sqlite`；Compose MySQL 模板、备份恢复文档、端到端 smoke、stale 恢复 smoke、备份恢复演练、5 任务稳定性 smoke、Redis/MySQL 短暂不可用演练脚本、RQ worker stability smoke、queue alert 阈值检查、测试计划执行 job MySQL 持久化验证、测试 Agent workflow MySQL/RQ smoke、常驻服务模式 12 job 负载 smoke 和 2 worker 40 job 负载演练已完成。生产切换前仍需要补更长时长和更高并发运行验证。
+- 当前默认仍是 `DATABASE_BACKEND=sqlite`；Compose MySQL 模板、备份恢复文档、端到端 smoke、stale 恢复 smoke、备份恢复演练、5 任务稳定性 smoke、Redis/MySQL 短暂不可用演练脚本、RQ worker stability smoke、queue alert 阈值检查、测试计划执行 job MySQL 持久化验证、测试 Agent workflow MySQL/RQ smoke、常驻服务模式 12 job 负载 smoke、2 worker 40 job 负载演练和 Redis/MySQL 依赖抖动恢复演练已完成。生产切换前仍需要补更长时长和更高并发运行验证。
 
 LangGraph 升级：
 

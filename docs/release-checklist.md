@@ -263,6 +263,21 @@ docker compose -f docker-compose.yml -f docker-compose.mysql-rq.yml --profile my
     --json
 ```
 
+依赖抖动组合演练可以继续在常驻 service-mode 栈上停启 Redis/MySQL，验证 outage 期队列检查失败可解释、恢复后 readiness/queue/load 均成功：
+
+```bash
+./.venv/bin/python scripts/smoke_service_mode_dependency_jitter.py \
+  --worker-count 2 \
+  --baseline-rounds 1 \
+  --baseline-jobs-per-round 2 \
+  --recovery-rounds 1 \
+  --recovery-jobs-per-round 2 \
+  --recover-retries 20 \
+  --retry-interval-seconds 2 \
+  --output-json data/ops-drills/service-mode-dependency-jitter-YYYYMMDD-mysql-rq.json \
+  --json
+```
+
 更长时长或并行 worker 演练可以直接运行脚本并提高轮次、每轮 job 数和 worker 数：
 
 ```bash

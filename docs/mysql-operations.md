@@ -270,6 +270,7 @@ COMPOSE_PROJECT_NAME=agent_restore_test \
 - 常驻服务模式 MySQL/RQ 对齐验证：使用 `docker-compose.mysql-rq.yml` 重建 API 和 worker 后，`check_readiness.py --json` 返回 `ready=true`，数据库为 MySQL，队列为 Redis/RQ；通过 API 提交 1 个 deterministic Test Agent workflow job，状态从 `queued` 进入 `succeeded`，job 写入 MySQL，queue wait 约 73 ms，job total 约 96 ms；随后 `check_queue_alerts.py --json --require-worker --max-rq-failed 0` 返回 `ok=true`，alerts 为空，三类队列均为 MySQL/RQ backend，worker_count=1，queued/started/failed 均为 0。
 - 常驻服务模式多轮负载 smoke：重建 API/worker 后运行 `smoke_service_mode_workflow_load.py --rounds 3 --jobs-per-round 4 --require-worker --max-rq-failed 0`；12 个 workflow job 全部 `succeeded`，报告状态均为 `incomplete`（manual 步骤未人工确认），队列告警每轮均 `ok=true`、alerts 为空；吞吐约 3.61 jobs/s，queue wait 平均约 120 ms、最大约 268 ms，job total 平均约 143 ms、最大约 292 ms。
 - 常驻服务模式双 worker 负载演练：使用 `docker compose ... up -d --scale worker=2 worker` 扩容后运行 `smoke_service_mode_workflow_load.py --rounds 5 --jobs-per-round 8 --require-worker --max-rq-failed 0`；40 个 workflow job 全部 `succeeded`，报告状态均为 `incomplete`，5 轮队列告警均 `ok=true`、alerts 为空，workflow 队列每轮 `worker_count=2`；吞吐约 7.89 jobs/s，queue wait 平均约 91 ms、最大约 265 ms，job total 平均约 120 ms、最大约 322 ms。
+- 常驻服务模式依赖抖动演练：运行 `smoke_service_mode_dependency_jitter.py --worker-count 2`，基线 load、Redis 恢复后 load、MySQL 恢复后 load 各 2 个 workflow job，6 个 job 全部 `succeeded`，三次 load 的 workflow 队列 `worker_count=2`、alerts 为空；Redis outage 期 `check_queue_alerts.py` 以 Redis/RQ `ConnectionError` 返回预期失败，MySQL outage 期以 MySQL `OperationalError` 返回预期失败；依赖恢复后 readiness、queue alerts 和 load 均恢复成功。
 
 后续做多轮服务模式负载验证时，直接在 API 容器内运行：
 
@@ -302,6 +303,21 @@ docker compose -f docker-compose.yml -f docker-compose.mysql-rq.yml --profile my
     --json
 ```
 
+依赖抖动组合演练会在常驻 service-mode 栈上停启 Redis/MySQL，验证 outage 期失败可解释、恢复后 readiness/queue/load 均成功：
+
+```bash
+./.venv/bin/python scripts/smoke_service_mode_dependency_jitter.py \
+  --worker-count 2 \
+  --baseline-rounds 1 \
+  --baseline-jobs-per-round 2 \
+  --recovery-rounds 1 \
+  --recovery-jobs-per-round 2 \
+  --recover-retries 20 \
+  --retry-interval-seconds 2 \
+  --output-json data/ops-drills/service-mode-dependency-jitter-YYYYMMDD-mysql-rq.json \
+  --json
+```
+
 最终队列检查证据保存在 `data/ops-drills/queue-alerts-20260718-rq-mysql-after-smoke.json`。本次运行镜像尚未包含新加的 `--output-json` 参数，因此 Compose 内证据通过 `--json` stdout 重定向保存；后续重建镜像后可直接使用 `--output-json`。
 
 短窗口采样证据保存在：
@@ -312,8 +328,9 @@ docker compose -f docker-compose.yml -f docker-compose.mysql-rq.yml --profile my
 - `data/ops-drills/queue-alerts-20260718-service-mode-mysql-rq.json`
 - `data/ops-drills/service-mode-workflow-load-20260718-mysql-rq.json`
 - `data/ops-drills/service-mode-workflow-load-20260718-mysql-rq-2workers.json`
+- `data/ops-drills/service-mode-dependency-jitter-20260718-mysql-rq.json`
 
-阶段评估：正常。当前 Compose RQ/MySQL 链路已经覆盖中断恢复、worker 稳定性、Test Agent workflow、最终队列告警闭环、短窗口采样基线、常驻 API/worker 服务模式对齐、12 job 多轮负载 smoke 和 2 worker 40 job 负载演练；真正阈值校准仍需要在预发或受控生产环境跑完整业务周期采样。
+阶段评估：正常。当前 Compose RQ/MySQL 链路已经覆盖中断恢复、worker 稳定性、Test Agent workflow、最终队列告警闭环、短窗口采样基线、常驻 API/worker 服务模式对齐、12 job 多轮负载 smoke、2 worker 40 job 负载演练和 Redis/MySQL 依赖抖动恢复演练；真正阈值校准仍需要在预发或受控生产环境跑完整业务周期采样。
 
 ## 10. 运行检查
 
@@ -381,4 +398,4 @@ MySQL 初始化、备份、恢复文档、一次恢复演练、完整 Compose AP
 - RQ `queue_count=0`、`failed_count=0`、`finished_count=5`。
 - 重启 API/worker 后仍可查询最后一个 job 的失败状态和 `record_id`。
 
-总评估：正常。MySQL backend 已具备可操作的初始化、备份和恢复流程，并已完成一次备份恢复演练、完整 Compose API/worker 镜像 smoke、stale 恢复 smoke、多任务稳定性 smoke、Redis/MySQL 短暂不可用恢复验证、Test Agent workflow RQ/MySQL 验证、常驻 API/worker service-mode 对齐、12 job 多轮负载 smoke 和 2 worker 40 job 负载演练；真正切生产默认前仍建议补更长时长运行、并发容量观察和告警阈值校准。
+总评估：正常。MySQL backend 已具备可操作的初始化、备份和恢复流程，并已完成一次备份恢复演练、完整 Compose API/worker 镜像 smoke、stale 恢复 smoke、多任务稳定性 smoke、Redis/MySQL 短暂不可用恢复验证、Test Agent workflow RQ/MySQL 验证、常驻 API/worker service-mode 对齐、12 job 多轮负载 smoke、2 worker 40 job 负载演练和 Redis/MySQL 依赖抖动恢复演练；真正切生产默认前仍建议补更长时长运行、并发容量观察和告警阈值校准。
