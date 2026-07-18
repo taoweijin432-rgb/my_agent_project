@@ -80,6 +80,7 @@ DEFAULT_PYTEST_TARGETS = [
     "tests/test_recovery_smoke.py",
     "tests/test_runtime_dependency_outage_smoke.py",
     "tests/test_rq_mysql_worker_stability_smoke.py",
+    "tests/test_service_mode_workflow_load_smoke.py",
     "tests/test_test_agent_workflow_rq_mysql_smoke.py",
     "tests/test_test_agent_workflow.py",
     "tests/test_test_execution_smoke.py",

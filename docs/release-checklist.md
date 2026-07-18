@@ -230,6 +230,23 @@ docker compose -f docker-compose.yml -f docker-compose.mysql-rq.yml --profile my
 
 该路径验证常驻 API 和 worker 使用同一个 MySQL/RQ 配置，而不是只依赖 smoke 脚本启动的临时 worker。
 
+常驻服务模式负载验证可以继续提交多轮 deterministic workflow job，并在每轮后检查队列告警：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.mysql-rq.yml --profile mysql exec api \
+  python scripts/smoke_service_mode_workflow_load.py \
+    --rounds 3 \
+    --jobs-per-round 4 \
+    --require-worker \
+    --max-rq-failed 0 \
+    --fail-over-max-queue-wait-ms 60000 \
+    --fail-over-max-job-total-ms 120000 \
+    --fail-under-throughput-jobs-per-second 0.01 \
+    --json
+```
+
+该脚本通过运行中的 HTTP API 提交 job，再由常驻 worker 消费；适合验证服务模式吞吐、排队耗时、MySQL 写回和队列告警闭环。
+
 更长时长或并行 worker 演练可以直接运行脚本并提高轮次、每轮 job 数和 worker 数：
 
 ```bash
