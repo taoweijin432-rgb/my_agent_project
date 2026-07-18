@@ -71,6 +71,7 @@ DEFAULT_PYTEST_TARGETS = [
     "tests/test_pytest_export.py",
     "tests/test_quality.py",
     "tests/test_queue_alerts.py",
+    "tests/test_queue_alert_samples.py",
     "tests/test_reviewer.py",
     "tests/test_runtime_paths.py",
     "tests/test_queue_observability.py",

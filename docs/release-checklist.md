@@ -239,6 +239,22 @@ workflow 实机演练通过条件：所有 workflow job 进入 `succeeded`，报
 
 该检查会调用 `scripts/check_queue_alerts.py`，聚合生成队列和测试计划执行队列的 `metrics` 与 `alerts`。默认把 RQ failed registry 超过 0 视为 error，并检查 worker heartbeat；生产环境可直接运行脚本并显式配置 `--require-worker`、`--max-active-jobs`、`--max-rq-queued`、`--max-rq-started` 和 `--fail-on-warning`。
 
+容量观察或阈值校准时，使用采样脚本保存多次快照和汇总：
+
+```bash
+./.venv/bin/python scripts/collect_queue_alert_samples.py \
+  --samples 60 \
+  --interval-seconds 60 \
+  --require-worker \
+  --max-rq-failed 0 \
+  --fail-on-warning \
+  --output-jsonl data/ops-drills/queue-alert-samples-$(date +%Y%m%d-%H%M%S).jsonl \
+  --output-summary-json data/ops-drills/queue-alert-summary-$(date +%Y%m%d-%H%M%S).json \
+  --json
+```
+
+该脚本复用 `check_queue_alerts.py` 的队列快照和阈值逻辑，每行写入一次完整 report，最终 summary 输出 observed maxima、alert counts 和带 headroom 的候选阈值。候选阈值只作为观察窗口参考，不能替代完整业务周期和压测结论。
+
 默认发布检查还会执行本地监控 metrics/alert 模板验证：
 
 ```bash

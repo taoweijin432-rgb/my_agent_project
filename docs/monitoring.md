@@ -118,6 +118,24 @@ python scripts/check_queue_alerts.py --json \
 
 输出文件包含 `generated_at`、阈值、三个队列的 metrics、alerts 和原始 snapshot。文件可作为 Redis/MySQL outage、RQ worker stability 和 workflow RQ/MySQL smoke 的演练附件；真实环境的历史记录应保存在团队运维仓库或受控对象存储，不建议提交到本代码仓库。
 
+## 队列容量观察采样
+
+单次快照只能证明当前时刻健康，不能代表业务周期容量。预发或受控生产环境可以用采样脚本按固定间隔保存 JSONL，再基于 observed maxima 校准阈值：
+
+```bash
+python scripts/collect_queue_alert_samples.py \
+  --samples 60 \
+  --interval-seconds 60 \
+  --require-worker \
+  --max-rq-failed 0 \
+  --fail-on-warning \
+  --output-jsonl data/ops-drills/queue-alert-samples-$(date +%Y%m%d-%H%M%S).jsonl \
+  --output-summary-json data/ops-drills/queue-alert-summary-$(date +%Y%m%d-%H%M%S).json \
+  --json
+```
+
+采样脚本每行保存一次完整 `check_queue_alerts.py` report，最终 summary 会输出每个队列的 active、queued、started、failed 和 worker_count 最大值，以及带 headroom 的候选阈值。候选阈值只是观察窗口里的下限参考，不应直接替代完整业务周期、容量压测和告警演练结论。
+
 ## 阈值校准
 
 正式接入后，先观察一个完整业务周期，再调整告警阈值。建议按下面顺序校准：
