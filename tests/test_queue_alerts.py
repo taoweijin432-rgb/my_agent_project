@@ -148,6 +148,27 @@ def test_main_can_fail_on_warning(monkeypatch) -> None:
     assert main(["--fail-on-warning"]) == 1
 
 
+def test_main_writes_output_json(monkeypatch, tmp_path) -> None:
+    output_path = tmp_path / "queue-alerts.json"
+    monkeypatch.setattr(
+        check_queue_alerts,
+        "build_alert_report",
+        lambda **_: {
+            "ok": True,
+            "generated_at": "2026-07-13T12:00:00+00:00",
+            "metrics": {"generation": {"rq_failed": 0}},
+            "alerts": [],
+            "snapshots": {},
+        },
+    )
+
+    assert main(["--json", "--output-json", str(output_path)]) == 0
+
+    content = output_path.read_text(encoding="utf-8")
+    assert '"ok": true' in content
+    assert '"rq_failed": 0' in content
+
+
 def _snapshot(
     *,
     active: int = 0,

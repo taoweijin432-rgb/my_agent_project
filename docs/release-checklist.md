@@ -277,10 +277,13 @@ CI 验证：
 - 扫描真实服务 key、模型 key、云厂商 key 和 `.env/config.py` 泄漏。
 - 扫描范围覆盖 `.github`、示例环境文件、`app/`、`docs/`、`scripts/`、`tests/`、`README.md`、Docker 文件和依赖文件。
 - 不在文档中固化具体 key pattern，避免发布文档本身被扫描命令误报。
+- 检查测试执行 artifact、`ToolRun.output_summary`、报告 evidence、Markdown/JSON 导出、历史记录和异常日志，不应出现 token、cookie、password、api key 或业务敏感响应片段。
+- 使用包含假 token、假 cookie、假 password、假 API key 的 fixture 验证脱敏链路；测试断言应检查原始敏感值不存在，而不是只检查 `[redacted]` 出现。
 
 当前允许的已知命中：
 
 - `tests\test_deployment_templates.py` 中的敏感片段断言。
+- `tests\test_tool_artifacts.py` 等脱敏单测中的假密钥、假 token、假密码 fixture。
 - `tests\fixtures\rag_eval_cases.json`、`tests\fixtures\login_rag_eval_cases.json` 和 `tests\fixtures\refund_rag_eval_cases.json` 中的业务 fixture 文本。
 
 运行环境检查：

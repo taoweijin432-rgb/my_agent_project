@@ -71,6 +71,78 @@ def test_export_execution_report_json_uses_report_schema() -> None:
     assert payload["tool_runs"][1]["tool"] == "pytest"
 
 
+def test_build_execution_report_redacts_sensitive_tool_output() -> None:
+    plan = Plan(
+        id="plan-redaction",
+        title="redaction plan",
+        steps=[
+            PlanStep(
+                id="TP-001",
+                title="HTTP step",
+                objective="HTTP step",
+                requirement_ids=["REQ-001"],
+                tool=ToolType.http,
+            )
+        ],
+    )
+
+    report = build_execution_report(
+        plan,
+        [
+            ToolRun(
+                id="run-1",
+                plan_step_id="TP-001",
+                tool=ToolType.http,
+                status=ToolRunStatus.failed,
+                output_summary=(
+                    "POST /login returned 401; expected [200]. "
+                    "Authorization: Bearer secret-token password=secret-password"
+                ),
+            )
+        ],
+    )
+    payload = report.model_dump_json()
+
+    assert "secret-token" not in payload
+    assert "secret-password" not in payload
+    assert "[redacted]" in report.tool_runs[0].output_summary
+    assert "[redacted]" in report.defects[0]
+
+
+def test_export_execution_report_redacts_sensitive_values() -> None:
+    report = ExecutionReport(
+        id="report-redaction",
+        plan_id="plan-redaction",
+        status=ReportStatus.failed,
+        summary="Cookie: session=secret-cookie",
+        tool_runs=[
+            ToolRun(
+                id="run-1",
+                plan_step_id="TP-001",
+                tool=ToolType.http,
+                status=ToolRunStatus.failed,
+                output_summary="api_key=secret-api-key",
+            )
+        ],
+        defects=["TP-001: access_token=secret-access"],
+        recommendations=["Rotate password=secret-password"],
+    )
+
+    markdown = export_execution_report(report, "markdown")
+    json_payload = export_execution_report(report, "json")
+
+    for raw_secret in [
+        "secret-cookie",
+        "secret-api-key",
+        "secret-access",
+        "secret-password",
+    ]:
+        assert raw_secret not in markdown
+        assert raw_secret not in json_payload
+    assert "[redacted]" in markdown
+    assert "[redacted]" in json_payload
+
+
 def test_export_execution_report_rejects_unknown_format() -> None:
     with pytest.raises(ValueError):
         export_execution_report(_report(), "html")

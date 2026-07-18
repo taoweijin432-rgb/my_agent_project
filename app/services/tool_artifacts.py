@@ -5,26 +5,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from app.core.config import PROJECT_ROOT
-
-
-REDACTED = "[redacted]"
-_SENSITIVE_KEY_PATTERN = (
-    r"authorization|proxy[-_]?authorization|cookie|set[-_]?cookie|password|passwd|pwd|"
-    r"secret|client[-_]?secret|api[-_]?key|access[-_]?token|refresh[-_]?token|"
-    r"id[-_]?token|auth[-_]?token|session[-_]?token|private[-_]?key|zhipu[-_]?api[-_]?key"
-)
-_SENSITIVE_HEADER_RE = re.compile(
-    rf"(?im)^(\s*(?:{_SENSITIVE_KEY_PATTERN}|x[-_]api[-_]key|x[-_]auth[-_]token|"
-    rf"x[-_]csrf[-_]token|x[-_]xsrf[-_]token)\s*:\s*).+$"
-)
-_JSON_SECRET_RE = re.compile(
-    rf"""(?ix)((["'])(?:{_SENSITIVE_KEY_PATTERN})\2\s*:\s*)(["'])(.*?)\3"""
-)
-_ASSIGNMENT_SECRET_RE = re.compile(
-    rf"""(?ix)(\b(?:{_SENSITIVE_KEY_PATTERN})\b\s*[:=]\s*)(["']?)[^\s,;]+(["']?)"""
-)
-_AUTH_SCHEME_RE = re.compile(r"(?i)\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+")
-_URL_PASSWORD_RE = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://[^/\s:@]+:)[^@\s/]+(@)")
+from app.services.redaction import redact_sensitive_text
 
 
 class ToolArtifactStore:
@@ -46,7 +27,7 @@ class ToolArtifactStore:
         artifact_dir.mkdir(parents=True, exist_ok=True)
         path = artifact_dir / safe_filename
         path.write_text(
-            _truncate(_redact_sensitive_content(content), self.max_bytes),
+            _truncate(redact_sensitive_text(content), self.max_bytes),
             encoding="utf-8",
         )
         return _display_path(path, self.project_root)
@@ -104,20 +85,6 @@ def _truncate(content: str, max_bytes: int) -> str:
         return content
     truncated = raw[:max_bytes].decode("utf-8", errors="ignore")
     return truncated + "\n\n[artifact truncated]\n"
-
-
-def _redact_sensitive_content(content: str) -> str:
-    redacted = _SENSITIVE_HEADER_RE.sub(rf"\1{REDACTED}", content)
-    redacted = _JSON_SECRET_RE.sub(
-        lambda match: f"{match.group(1)}{match.group(3)}{REDACTED}{match.group(3)}",
-        redacted,
-    )
-    redacted = _ASSIGNMENT_SECRET_RE.sub(
-        lambda match: f"{match.group(1)}{match.group(2)}{REDACTED}{match.group(3)}",
-        redacted,
-    )
-    redacted = _AUTH_SCHEME_RE.sub(lambda match: f"{match.group(1)} {REDACTED}", redacted)
-    return _URL_PASSWORD_RE.sub(rf"\1{REDACTED}\2", redacted)
 
 
 def _display_path(path: Path, project_root: Path) -> str:

@@ -10,6 +10,7 @@ from app.services.generator import (
     TestCaseGenerator,
 )
 from app.services.llm import LLMError, MissingApiKeyError
+from app.services.redaction import redact_sensitive_data, redact_sensitive_text
 from app.services.stage_metrics import record_stage_duration
 from app.services.stores import GenerationHistoryRepository
 
@@ -105,11 +106,15 @@ def _record_generation_failure(
         )
         return history_store_factory().record_failure(
             request,
-            str(exc),
+            redact_sensitive_text(str(exc)),
             duration_ms=duration_ms,
             request_id=request_id,
             usage=getattr(exc, "usage", None),
-            gate=exc.to_detail() if isinstance(exc, GenerationGateError) else None,
+            gate=(
+                redact_sensitive_data(exc.to_detail())
+                if isinstance(exc, GenerationGateError)
+                else None
+            ),
         )
     except Exception:
         logger.exception("failed to persist generation failure record")

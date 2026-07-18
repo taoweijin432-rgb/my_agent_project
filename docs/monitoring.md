@@ -94,6 +94,30 @@ python scripts/check_monitoring_metrics.py --json
 
 该脚本不访问 Redis、数据库或 Prometheus；它会构造一份 synthetic metrics snapshot，调用当前 `format_prometheus_metrics()` 生成 Prometheus 文本，并检查关键 series 与 `docs/monitoring/prometheus-alert-rules.yml` 中的核心告警名/表达式是否仍然存在。`scripts/run_release_checks.py` 默认会执行该检查；需要临时跳过时使用 `--skip-monitoring-check`。
 
+## 队列告警演练记录
+
+Redis/RQ 或 MySQL 演练后，建议把队列告警快照保存为证据文件，便于复盘和阈值校准：
+
+```bash
+python scripts/check_queue_alerts.py --json \
+  --output-json data/ops-drills/queue-alerts-$(date +%Y%m%d-%H%M%S).json
+```
+
+生产或预发环境建议显式带上阈值，避免只保存默认配置：
+
+```bash
+python scripts/check_queue_alerts.py --json \
+  --require-worker \
+  --max-active-jobs 20 \
+  --max-rq-queued 50 \
+  --max-rq-started 20 \
+  --max-rq-failed 0 \
+  --fail-on-warning \
+  --output-json data/ops-drills/queue-alerts-$(date +%Y%m%d-%H%M%S).json
+```
+
+输出文件包含 `generated_at`、阈值、三个队列的 metrics、alerts 和原始 snapshot。文件可作为 Redis/MySQL outage、RQ worker stability 和 workflow RQ/MySQL smoke 的演练附件；真实环境的历史记录应保存在团队运维仓库或受控对象存储，不建议提交到本代码仓库。
+
 ## 阈值校准
 
 正式接入后，先观察一个完整业务周期，再调整告警阈值。建议按下面顺序校准：

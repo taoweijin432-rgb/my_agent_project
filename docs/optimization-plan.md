@@ -8,6 +8,7 @@
 
 - 工程基线、前端可维护性和功能落地增强已完成主要目标。
 - 生产运行边界处于收尾阶段，Redis/RQ + MySQL 的长时、多轮、多 worker 稳定性验证和测试 Agent workflow job 的 Docker/RQ + MySQL 实机 smoke 已具备可选演练入口；测试 Agent workflow 已新增耗时观测字段、真实 LLM attempt 级调用 metrics、错误分类 retry/backoff、阶段失败码、真实 LLM benchmark 入口、JSONL 历史记录、strict 测评模式、eval summary 汇总、前端详情展示、worker 吞吐 summary、吞吐阈值门禁、报告摘要事实门禁、报告原因分类门禁、原因感知建议门禁、报告建议 grounding 门禁、next-action 质量门禁和证据 artifact/output 可追溯性门禁。HTTP adapter 已支持声明式 `json_assertions`，可在状态码通过时继续校验响应 JSON 字段。真实 LLM workflow eval 已支持按 `--case-id`/`--case-slice` 分批和 `--case-delay-seconds` 串行限速，429 会作为 `rate_limited` 进入可重试错误分类。2026-07-15 使用当前默认模型 `glm-4-flash` 完成当前 15 条需求到报告样本的真实 LLM strict 覆盖：原 11 条全量 strict eval 与新增 4 条真实业务样本分批 strict eval 均为 `case_pass_rate=1.0`，所有质量门禁为 1.0，无 fallback、无 retry、无 timeout/429；新增 4 条在 `json_assertions` 新契约下 `plan_generation.avg=29567.073ms`、`max=35863.873ms`。这说明当前模型下输出契约和耗时都可控，之前长耗时问题应按模型/上游差异处理。默认 deterministic workflow eval 已扩展到 15 条样本，覆盖 HTTP、pytest、SQL adapter 缺失、manual skipped、422 参数校验失败、金额不一致、异步终态不一致、前置失败和回调幂等冲突，其中金额不一致和异步终态不一致已通过 JSON 字段断言表达，但 deterministic 路径只作为快速回归保护，不作为模型约束效果结论。当前重点转向更多真实业务样本、真实模型强门禁常态化和生产监控接入。
+- 安全收口的下一小切片是运行结果统一脱敏：artifact 落盘已脱敏，但 `ToolRun.output_summary`、HTTP JSON assertion mismatch、pytest summary、报告 evidence、Markdown/JSON 导出和异常日志仍可能带出敏感响应片段，应抽出共享 redaction 工具并覆盖这些输出路径。
 - RAG 质量治理已具备固定评估入口，后续要扩大真实业务样本和失败归因维度。
 
 后续路线：
@@ -87,6 +88,7 @@ cd frontend && npm test && npm run build
 - 增强 worker crash、Redis 短暂不可用、MySQL 短暂不可用时的恢复验证。
 - 补充可观测性：结构化日志、关键计数指标、队列积压和失败告警。
 - 增强鉴权：多 API key、key 轮换、最小权限或网关集成说明。
+- 补齐运行结果脱敏：artifact、API 返回、报告、历史记录和日志不应泄漏 token、cookie、password、api key 或业务敏感响应。
 
 建议顺序：
 
@@ -100,6 +102,7 @@ cd frontend && npm test && npm run build
 8. 增加队列 metrics/alert 阈值检查。已完成：`scripts/check_queue_alerts.py` 会聚合生成队列和测试计划执行队列的 `metrics`/`alerts`，支持 active jobs、RQ queued/started/failed、worker heartbeat 和 require-worker 阈值；`scripts/run_release_checks.py --include-queue-alert-check` 可显式触发。
 9. 增加长时稳定性演练入口。已完成：`scripts/smoke_rq_mysql_worker_stability.py` 支持 `--rounds`、`--jobs-per-round` 和 `--worker-count`，每轮执行后都会检查测试计划执行队列 alert，输出总 job 数、每轮耗时、总耗时、报告状态、artifact 数和 worker 数。长时间实机压测仍作为人工可选步骤，不进入默认 CI。
 10. 将真实 LLM 的需求到报告生产调用异步化。已完成：新增测试 Agent workflow job，支持 `POST /api/v1/test-agent/workflow-jobs` 提交、列表和详情查询；job 复用现有 `GENERATION_JOB_QUEUE_BACKEND=in_memory|rq`、Redis/RQ worker、SQLite/MySQL 持久化、stale running 恢复和队列满背压。已新增 `scripts/check_test_agent_workflow_queue.py` 并接入 queue alert 聚合和默认发布检查；前端 `TestPlanPanel` 已支持提交完整 workflow、查看列表/详情、轮询活跃任务和回填结果。`scripts/smoke_test_agent_workflow_rq_mysql.py` 已完成 Docker/RQ + MySQL 实机 smoke，验证真实 API、Redis、MySQL、RQ worker、HTTP adapter、artifact、报告和队列 alert。首批耗时观测已完成：`result.timing` 记录计划生成、工具执行和报告汇总阶段，`job.timing` 派生排队耗时、任务运行耗时和 workflow 阶段耗时，workflow eval/smoke 输出耗时汇总。阶段失败分层已完成：阶段异常会写入 `error.stage`、阶段失败码和 partial timing，例如 `plan_generation_timeout`。真实 LLM benchmark 已完成入口和 JSONL 历史记录：`--include-llm-workflow-benchmark` 会运行真实模型调用并把 summary 追加写入 `data/llm-workflow-benchmark-history.jsonl`。后续重点不是增加离线测评权重，而是补真实 LLM strict 门禁常态化、模型切换对比、重试策略和 worker 处理能力观测。
+11. 统一运行结果脱敏。下一步执行：复用 artifact redaction 规则，覆盖 `ToolRun.output_summary`、HTTP JSON assertion mismatch、pytest summary、报告 evidence、Markdown/JSON 导出和异常日志；新增测试确保 token、cookie、password、api key 不会出现在 API 返回、报告导出或历史记录中。
 
 ## 阶段 4：RAG 质量治理
 

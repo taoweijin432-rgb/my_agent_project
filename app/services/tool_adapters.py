@@ -21,6 +21,7 @@ from app.models.test_plan import (
     ToolRun,
     ToolRunStatus,
 )
+from app.services.redaction import redact_sensitive_text
 from app.services.tool_artifacts import ToolArtifactStore
 
 
@@ -200,8 +201,8 @@ def _tool_run(
     tool: TestToolType,
     command: list[str],
     exit_code: int | None,
-    artifact_paths: list[str] | None = None,
-    output_summary: str,
+        artifact_paths: list[str] | None = None,
+        output_summary: str,
 ) -> ToolRun:
     return ToolRun(
         id=f"run-{uuid4().hex[:12]}",
@@ -213,7 +214,7 @@ def _tool_run(
         finished_at=_utc_now(),
         exit_code=exit_code,
         artifact_paths=artifact_paths or [],
-        output_summary=output_summary,
+        output_summary=redact_sensitive_text(output_summary),
     )
 
 
@@ -404,7 +405,7 @@ def _pytest_summary(result: subprocess.CompletedProcess[str]) -> str:
     output = "\n".join(part for part in [result.stdout, result.stderr] if part).strip()
     if not output:
         return f"pytest exited with code {result.returncode}."
-    return output[-1000:]
+    return redact_sensitive_text(output[-1000:])
 
 
 def _http_artifacts(

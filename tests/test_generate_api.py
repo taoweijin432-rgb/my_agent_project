@@ -256,6 +256,53 @@ def test_generate_api_error_mapping(monkeypatch, fake_history_store, error, stat
         assert fake_history_store.failures[0][5]["code"] == "budget_exceeded"
 
 
+def test_generate_api_redacts_sensitive_error_detail_and_history(
+    monkeypatch,
+    fake_history_store,
+) -> None:
+    error = LLMError(
+        "upstream failed api_key=secret-api-key Authorization: Bearer secret-token"
+    )
+    monkeypatch.setattr(routes, "_generator", lambda: FakeGenerator(error=error))
+
+    with pytest.raises(HTTPException) as exc_info:
+        routes.generate_test_cases(
+            GenerateRequest.model_validate({"description": "生成 JWT 登录测试用例"}),
+            _http_request(),
+        )
+
+    detail = exc_info.value.detail
+    stored_error = fake_history_store.failures[0][1]
+    assert "secret-api-key" not in detail
+    assert "secret-token" not in detail
+    assert "secret-api-key" not in stored_error
+    assert "secret-token" not in stored_error
+    assert "api_key=[redacted]" in detail
+    assert "[redacted]" in detail
+    assert detail == stored_error
+
+
+def test_generate_api_redacts_sensitive_gate_detail(monkeypatch, fake_history_store) -> None:
+    error = GenerationBudgetExceededError(
+        "budget exceeded password=secret-password",
+        usage=GenerationUsage(prompt_tokens_estimate=10),
+    )
+    monkeypatch.setattr(routes, "_generator", lambda: FakeGenerator(error=error))
+
+    with pytest.raises(HTTPException) as exc_info:
+        routes.generate_test_cases(
+            GenerateRequest.model_validate({"description": "生成 JWT 登录测试用例"}),
+            _http_request(),
+        )
+
+    detail = exc_info.value.detail
+    stored_gate = fake_history_store.failures[0][5]
+    assert "secret-password" not in detail["message"]
+    assert "secret-password" not in stored_gate["message"]
+    assert detail["message"] == "budget exceeded password=[redacted]"
+    assert stored_gate["message"] == "budget exceeded password=[redacted]"
+
+
 def test_generation_job_api(fake_generation_job_queue) -> None:
     submitted = routes.submit_generation_job(
         GenerateRequest.model_validate(

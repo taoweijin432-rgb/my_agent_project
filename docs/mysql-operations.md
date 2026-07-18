@@ -1,6 +1,6 @@
 # MySQL 初始化、备份与恢复
 
-最后更新：2026-06-23
+最后更新：2026-07-18
 
 本文记录项目使用 MySQL backend 时的本机和 Compose 运维步骤。MySQL 当前用于保存生成历史、门控审批和异步任务状态；Chroma 向量库、Redis/RQ 队列数据、模型缓存和原始知识库文件不在 MySQL 备份范围内。
 
@@ -244,7 +244,22 @@ COMPOSE_PROJECT_NAME=agent_restore_test \
 
 演练过程中第一次使用普通业务用户执行 `mysqldump` 时遇到缺少 `PROCESS` 权限，已通过追加 `--no-tablespaces` 解决。演练结束后已停止并移除源库和恢复库临时容器及网络，没有执行 `-v`，两个 volume 均保留。
 
-## 9. 运行检查
+## 9. 已验证 RQ/MySQL 运行烟测
+
+2026-07-18 在 Docker Compose `mysql` profile 环境完成一次 RQ/MySQL 运行烟测。`api`、`mysql`、`redis` 服务均为 healthy。
+
+执行范围：
+
+- Runtime outage smoke：Redis outage 和 MySQL outage 均触发预期连接失败，并在容器恢复后通过健康检查。
+- RQ/MySQL worker stability smoke：6 个 test plan execution job 全部 `succeeded`；报告状态 `passed=4`、`failed=2`；生成 artifact 6 份；队列告警 `ok=true`、alerts 为空；执行任务存储确认为 MySQL。
+- Test Agent workflow RQ/MySQL smoke：3 个 workflow job 全部 `succeeded`，报告和工具状态均为 `passed`；生成 artifact 3 份；覆盖需求 3 条；平均 queue wait 约 234 ms、最大约 347 ms；平均 job total 约 363 ms、最大约 432 ms；队列告警 `ok=true`、alerts 为空；workflow 任务存储确认为 MySQL。
+- 最终 Compose 网络内队列检查：`check_queue_alerts.py --json --max-rq-failed 0` 返回 `ok=true`，alerts 为空，generation、test agent workflow、test plan execution 均为 MySQL/RQ backend，queued/started/failed 均为 0。
+
+最终队列检查证据保存在 `data/ops-drills/queue-alerts-20260718-rq-mysql-after-smoke.json`。本次运行镜像尚未包含新加的 `--output-json` 参数，因此 Compose 内证据通过 `--json` stdout 重定向保存；后续重建镜像后可直接使用 `--output-json`。
+
+阶段评估：正常。当前 Compose RQ/MySQL 链路已经覆盖中断恢复、worker 稳定性、Test Agent workflow 和最终队列告警闭环；下一步应进入更长窗口的容量观察和告警阈值校准。
+
+## 10. 运行检查
 
 检查 API：
 
@@ -274,17 +289,17 @@ docker compose --profile mysql exec api \
 
 阶段评估：正常。只要 API/worker 的 `DATABASE_BACKEND` 是 `mysql`，且 MySQL 表中有新任务或历史记录，就说明应用链路已切到 MySQL。
 
-## 10. 常见问题
+## 11. 常见问题
 
-### 10.1 修改密码后仍无法登录
+### 11.1 修改密码后仍无法登录
 
 原因通常是 MySQL volume 已存在。`MYSQL_ROOT_PASSWORD`、`MYSQL_USER`、`MYSQL_PASSWORD` 只在首次初始化空 volume 时生效。已有数据需要用 MySQL 内部 SQL 修改用户密码，或在确认不要旧数据后换一个新的 volume。
 
-### 10.2 本机能连，容器内连不上
+### 11.2 本机能连，容器内连不上
 
 本机 Python 使用 `127.0.0.1:3306`。Compose 容器内部使用 `mysql:3306`。容器内不要使用 `127.0.0.1` 连接 MySQL，否则会连到 API/worker 容器自己。
 
-### 10.3 API 启动时报缺少 PyMySQL
+### 11.3 API 启动时报缺少 PyMySQL
 
 MySQL backend 需要 `PyMySQL`。本机虚拟环境执行：
 
@@ -294,13 +309,13 @@ uv pip install --python ./.venv/bin/python -r requirements.txt
 
 Compose 使用统一 `docker-compose.yml` 的 `mysql` profile，`PyMySQL` 已在 `requirements.txt` 中声明。
 
-### 10.4 初始化脚本没有执行
+### 11.4 初始化脚本没有执行
 
 MySQL 官方镜像只在数据目录为空时执行 `/docker-entrypoint-initdb.d/`。如果 `mysql-data` volume 已存在，初始化脚本不会再次执行。可以用 `scripts/init_mysql.py` 显式初始化 schema，或新建演练 volume 验证初始化流程。
 
-## 11. 下一步
+## 12. 下一步
 
-MySQL 初始化、备份、恢复文档、一次恢复演练、完整 Compose API/worker 镜像 smoke 和 5 任务稳定性 smoke 已完成。
+MySQL 初始化、备份、恢复文档、一次恢复演练、完整 Compose API/worker 镜像 smoke、5 任务稳定性 smoke、Redis/MySQL outage smoke、6 任务 RQ/MySQL worker stability smoke、Test Agent workflow RQ/MySQL smoke 和最终队列告警检查已完成。
 
 稳定性 smoke 结果：
 
@@ -310,4 +325,4 @@ MySQL 初始化、备份、恢复文档、一次恢复演练、完整 Compose AP
 - RQ `queue_count=0`、`failed_count=0`、`finished_count=5`。
 - 重启 API/worker 后仍可查询最后一个 job 的失败状态和 `record_id`。
 
-总评估：正常。MySQL backend 已具备可操作的初始化、备份和恢复流程，并已完成一次备份恢复演练、完整 Compose API/worker 镜像 smoke、stale 恢复 smoke 和多任务稳定性 smoke；真正切生产默认前仍建议补 Redis/MySQL 短暂不可用和更长时长运行验证。
+总评估：正常。MySQL backend 已具备可操作的初始化、备份和恢复流程，并已完成一次备份恢复演练、完整 Compose API/worker 镜像 smoke、stale 恢复 smoke、多任务稳定性 smoke、Redis/MySQL 短暂不可用恢复验证和 Test Agent workflow RQ/MySQL 验证；真正切生产默认前仍建议补更长时长运行、并发容量观察和告警阈值校准。

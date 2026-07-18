@@ -8,12 +8,14 @@ from app.models.test_plan import (
     ToolRunStatus,
     summarize_report_status,
 )
+from app.services.redaction import redact_sensitive_text, redact_sensitive_texts
 
 
 def build_execution_report(
     plan: TestPlan,
     tool_runs: list[ToolRun],
 ) -> TestExecutionReport:
+    tool_runs = _redact_tool_runs(tool_runs)
     status = summarize_report_status(tool_runs)
     requirement_coverage = _requirement_coverage(plan, tool_runs)
     defects = _defects_from_runs(tool_runs)
@@ -36,6 +38,7 @@ def export_execution_report(
     report: TestExecutionReport,
     export_format: str,
 ) -> str:
+    report = _redact_report(report)
     if export_format == "json":
         return report.model_dump_json(indent=2)
     if export_format == "markdown":
@@ -44,6 +47,7 @@ def export_execution_report(
 
 
 def render_execution_report_markdown(report: TestExecutionReport) -> str:
+    report = _redact_report(report)
     lines = [
         f"# Test Execution Report: {report.id}",
         "",
@@ -117,6 +121,28 @@ def render_execution_report_markdown(report: TestExecutionReport) -> str:
     lines.extend(_markdown_list(report.recommendations, "No recommendations recorded."))
     lines.append("")
     return "\n".join(lines)
+
+
+def _redact_report(report: TestExecutionReport) -> TestExecutionReport:
+    return report.model_copy(
+        update={
+            "summary": redact_sensitive_text(report.summary),
+            "tool_runs": _redact_tool_runs(report.tool_runs),
+            "defects": redact_sensitive_texts(report.defects),
+            "recommendations": redact_sensitive_texts(report.recommendations),
+        },
+        deep=True,
+    )
+
+
+def _redact_tool_runs(tool_runs: list[ToolRun]) -> list[ToolRun]:
+    return [
+        tool_run.model_copy(
+            update={"output_summary": redact_sensitive_text(tool_run.output_summary)},
+            deep=True,
+        )
+        for tool_run in tool_runs
+    ]
 
 
 def _requirement_coverage(

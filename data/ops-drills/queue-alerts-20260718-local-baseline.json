@@ -1,0 +1,109 @@
+{
+  "alerts": [],
+  "generated_at": "2026-07-18T02:14:29.781809+00:00",
+  "metrics": {
+    "generation": {
+      "configured_database_backend": null,
+      "database_active_jobs": 0,
+      "database_backend": "sqlite",
+      "rq_active": 0,
+      "rq_backend": "in_memory",
+      "rq_deferred": 0,
+      "rq_failed": 0,
+      "rq_finished": 0,
+      "rq_queued": 0,
+      "rq_scheduled": 0,
+      "rq_started": 0,
+      "worker_count": 0
+    },
+    "test_agent_workflow": {
+      "configured_database_backend": "sqlite",
+      "database_active_jobs": 0,
+      "database_backend": "sqlite",
+      "rq_active": 0,
+      "rq_backend": "in_memory",
+      "rq_deferred": 0,
+      "rq_failed": 0,
+      "rq_finished": 0,
+      "rq_queued": 0,
+      "rq_scheduled": 0,
+      "rq_started": 0,
+      "worker_count": 0
+    },
+    "test_plan_execution": {
+      "configured_database_backend": "sqlite",
+      "database_active_jobs": 0,
+      "database_backend": "sqlite",
+      "rq_active": 0,
+      "rq_backend": "in_memory",
+      "rq_deferred": 0,
+      "rq_failed": 0,
+      "rq_finished": 0,
+      "rq_queued": 0,
+      "rq_scheduled": 0,
+      "rq_started": 0,
+      "worker_count": 0
+    }
+  },
+  "ok": true,
+  "snapshots": {
+    "generation": {
+      "database": {
+        "active_count": 0,
+        "backend": "sqlite",
+        "jobs_by_status": {}
+      },
+      "health": {
+        "errors": [],
+        "ok": true,
+        "warnings": []
+      },
+      "queue": {
+        "active": false,
+        "backend": "in_memory"
+      }
+    },
+    "test_agent_workflow": {
+      "database": {
+        "active_count": 0,
+        "backend": "sqlite",
+        "configured_database_backend": "sqlite",
+        "jobs_by_status": {}
+      },
+      "health": {
+        "errors": [],
+        "ok": true,
+        "warnings": []
+      },
+      "queue": {
+        "active": false,
+        "backend": "in_memory"
+      }
+    },
+    "test_plan_execution": {
+      "database": {
+        "active_count": 0,
+        "backend": "sqlite",
+        "configured_database_backend": "sqlite",
+        "jobs_by_status": {}
+      },
+      "health": {
+        "errors": [],
+        "ok": true,
+        "warnings": []
+      },
+      "queue": {
+        "active": false,
+        "backend": "in_memory"
+      }
+    }
+  },
+  "thresholds": {
+    "max_active_jobs": null,
+    "max_rq_failed": 0,
+    "max_rq_queued": null,
+    "max_rq_started": null,
+    "max_worker_heartbeat_age_seconds": 300,
+    "require_worker": false
+  }
+}

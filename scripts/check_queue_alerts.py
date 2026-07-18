@@ -231,8 +231,11 @@ def main(argv: list[str] | None = None) -> int:
         thresholds=thresholds,
         queue_names=_queue_names(args.queue),
     )
+    report_json = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True)
+    if args.output_json:
+        _write_json_report(args.output_json, report_json)
     if args.json:
-        print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
+        print(report_json)
     else:
         print_text(report)
 
@@ -260,7 +263,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--require-worker", action="store_true")
     parser.add_argument("--fail-on-warning", action="store_true")
     parser.add_argument("--json", action="store_true", help="Print JSON output.")
+    parser.add_argument(
+        "--output-json",
+        type=Path,
+        help="Write the JSON report to a file for drill evidence archival.",
+    )
     return parser.parse_args(argv)
+
+
+def _write_json_report(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"{content}\n", encoding="utf-8")
 
 
 def _queue_names(value: str) -> list[str]:

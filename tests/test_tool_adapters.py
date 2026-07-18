@@ -102,6 +102,39 @@ def test_http_tool_adapter_fails_json_assertion_mismatch() -> None:
     assert 'path amount expected "100.00" but got "99.00"' in result.output_summary
 
 
+def test_http_tool_adapter_redacts_sensitive_json_assertion_values() -> None:
+    adapter = HTTPToolAdapter(
+        base_url="http://testserver",
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(
+                200,
+                json={"access_token": "secret-access-token"},
+            )
+        ),
+    )
+
+    result = adapter.run(
+        _step(
+            path="/api/v1/login",
+            expected_status=200,
+            json_assertions=[
+                {
+                    "path": "access_token",
+                    "operator": "equals",
+                    "expected": "expected-access-token",
+                }
+            ],
+        )
+    )
+
+    assert result.status == ToolRunStatus.failed
+    assert "secret-access-token" not in result.output_summary
+    assert "expected-access-token" not in result.output_summary
+    assert 'path access_token expected "[redacted]" but got "[redacted]"' in (
+        result.output_summary
+    )
+
+
 def test_http_tool_adapter_rejects_headers_outside_allowlist() -> None:
     adapter = HTTPToolAdapter(
         base_url="http://testserver",
@@ -284,6 +317,35 @@ def test_pytest_tool_adapter_marks_nonzero_exit_as_failed() -> None:
     assert result.status == ToolRunStatus.failed
     assert result.exit_code == 1
     assert "1 failed" in result.output_summary
+
+
+def test_pytest_tool_adapter_redacts_sensitive_output_summary() -> None:
+    adapter = PytestToolAdapter(
+        runner=lambda command, _, env: subprocess.CompletedProcess(
+            command,
+            1,
+            stdout="Authorization: Bearer secret-token\napi_key=secret-api-key\n1 failed",
+            stderr="password=secret-password",
+        )
+    )
+
+    result = adapter.run(
+        PlanStep(
+            id="TP-001",
+            title="运行 pytest",
+            objective="运行指定测试",
+            tool=ToolType.pytest,
+            tool_args={"test_path": "tests/test_tool_adapters.py"},
+        )
+    )
+
+    assert result.status == ToolRunStatus.failed
+    assert "secret-token" not in result.output_summary
+    assert "secret-api-key" not in result.output_summary
+    assert "secret-password" not in result.output_summary
+    assert "Authorization: [redacted]" in result.output_summary
+    assert "api_key=[redacted]" in result.output_summary
+    assert "password=[redacted]" in result.output_summary
 
 
 def test_pytest_tool_adapter_rejects_unsafe_path() -> None:

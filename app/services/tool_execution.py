@@ -2,6 +2,7 @@ from typing import Protocol
 from uuid import uuid4
 
 from app.models.test_plan import TestPlan, TestPlanStep, TestToolType, ToolRun, ToolRunStatus
+from app.services.redaction import redact_sensitive_text
 
 
 class ToolAdapter(Protocol):
@@ -46,5 +47,5 @@ def _non_executable_run(
         tool=step.tool,
         status=status,
         exit_code=None,
-        output_summary=summary,
+        output_summary=redact_sensitive_text(summary),
     )

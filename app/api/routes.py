@@ -75,6 +75,7 @@ from app.services.llm import LLMClient, LLMError, MissingApiKeyError
 from app.services.metrics import build_metrics_snapshot, format_prometheus_metrics
 from app.services.pytest_exporter import build_pytest_template
 from app.services.rag import ChromaUnavailableError, RagService
+from app.services.redaction import redact_sensitive_data, redact_sensitive_text
 from app.services.stores import (
     GenerationHistoryRepository,
     GenerationJobRepository,
@@ -721,14 +722,14 @@ def _execute_generation(
 
 def _generation_http_exception(exc: Exception) -> HTTPException:
     if isinstance(exc, MissingApiKeyError):
-        return HTTPException(status_code=503, detail=str(exc))
+        return HTTPException(status_code=503, detail=redact_sensitive_text(str(exc)))
     if isinstance(exc, LLMError):
-        return HTTPException(status_code=502, detail=str(exc))
+        return HTTPException(status_code=502, detail=redact_sensitive_text(str(exc)))
     if isinstance(exc, GenerationGateError):
-        return HTTPException(status_code=409, detail=exc.to_detail())
+        return HTTPException(status_code=409, detail=redact_sensitive_data(exc.to_detail()))
     if isinstance(exc, OutputValidationError):
-        return HTTPException(status_code=502, detail=str(exc))
-    return HTTPException(status_code=500, detail=str(exc))
+        return HTTPException(status_code=502, detail=redact_sensitive_text(str(exc)))
+    return HTTPException(status_code=500, detail=redact_sensitive_text(str(exc)))
 
 
 def _content_disposition(filename: str) -> str:

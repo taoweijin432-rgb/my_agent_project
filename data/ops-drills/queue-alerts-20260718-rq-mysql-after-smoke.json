@@ -1,0 +1,154 @@
+{
+  "alerts": [],
+  "generated_at": "2026-07-18T04:18:16.352279+00:00",
+  "metrics": {
+    "generation": {
+      "configured_database_backend": null,
+      "database_active_jobs": 0,
+      "database_backend": "mysql",
+      "rq_active": 1,
+      "rq_backend": "rq",
+      "rq_deferred": 0,
+      "rq_failed": 0,
+      "rq_finished": 0,
+      "rq_queued": 0,
+      "rq_scheduled": 0,
+      "rq_started": 0,
+      "worker_count": 0
+    },
+    "test_agent_workflow": {
+      "configured_database_backend": "mysql",
+      "database_active_jobs": 0,
+      "database_backend": "mysql",
+      "rq_active": 1,
+      "rq_backend": "rq",
+      "rq_deferred": 0,
+      "rq_failed": 0,
+      "rq_finished": 0,
+      "rq_queued": 0,
+      "rq_scheduled": 0,
+      "rq_started": 0,
+      "worker_count": 0
+    },
+    "test_plan_execution": {
+      "configured_database_backend": "mysql",
+      "database_active_jobs": 0,
+      "database_backend": "mysql",
+      "rq_active": 1,
+      "rq_backend": "rq",
+      "rq_deferred": 0,
+      "rq_failed": 0,
+      "rq_finished": 0,
+      "rq_queued": 0,
+      "rq_scheduled": 0,
+      "rq_started": 0,
+      "worker_count": 0
+    }
+  },
+  "ok": true,
+  "snapshots": {
+    "generation": {
+      "database": {
+        "active_count": 0,
+        "backend": "mysql",
+        "jobs_by_status": {}
+      },
+      "health": {
+        "errors": [],
+        "ok": true,
+        "warnings": []
+      },
+      "queue": {
+        "active": true,
+        "backend": "rq",
+        "deferred": 0,
+        "failed": 0,
+        "finished": 0,
+        "name": "generation-compose-smoke",
+        "queued": 0,
+        "scheduled": 0,
+        "started": 0,
+        "worker_count": 0,
+        "workers": []
+      }
+    },
+    "test_agent_workflow": {
+      "database": {
+        "active_count": 0,
+        "backend": "mysql",
+        "configured_database_backend": "mysql",
+        "jobs_by_status": {}
+      },
+      "health": {
+        "errors": [],
+        "ok": true,
+        "warnings": []
+      },
+      "queue": {
+        "active": true,
+        "backend": "rq",
+        "deferred": 0,
+        "failed": 0,
+        "finished": 0,
+        "function": "app.workers.test_agent_workflow_rq.run_test_agent_workflow_job",
+        "name": "generation-compose-smoke",
+        "queued": 0,
+        "scheduled": 0,
+        "started": 0,
+        "total": {
+          "deferred": 0,
+          "failed": 0,
+          "finished": 0,
+          "queued": 0,
+          "scheduled": 0,
+          "started": 0
+        },
+        "worker_count": 0,
+        "workers": []
+      }
+    },
+    "test_plan_execution": {
+      "database": {
+        "active_count": 0,
+        "backend": "mysql",
+        "configured_database_backend": "mysql",
+        "jobs_by_status": {}
+      },
+      "health": {
+        "errors": [],
+        "ok": true,
+        "warnings": []
+      },
+      "queue": {
+        "active": true,
+        "backend": "rq",
+        "deferred": 0,
+        "failed": 0,
+        "finished": 0,
+        "function": "app.workers.test_plan_execution_rq.run_test_plan_execution_job",
+        "name": "generation-compose-smoke",
+        "queued": 0,
+        "scheduled": 0,
+        "started": 0,
+        "total": {
+          "deferred": 0,
+          "failed": 0,
+          "finished": 0,
+          "queued": 0,
+          "scheduled": 0,
+          "started": 0
+        },
+        "worker_count": 0,
+        "workers": []
+      }
+    }
+  },
+  "thresholds": {
+    "max_active_jobs": null,
+    "max_rq_failed": 0,
+    "max_rq_queued": null,
+    "max_rq_started": null,
+    "max_worker_heartbeat_age_seconds": 300,
+    "require_worker": false
+  }
+}
