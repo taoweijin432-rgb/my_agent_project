@@ -53,6 +53,7 @@ def run_workflow_load_smoke(
     round_delay_seconds: float,
     queue_thresholds: QueueAlertThresholds,
     queue_alert_check: bool,
+    sample_queue_after_submit: bool = False,
     fail_over_max_queue_wait_ms: float | None = None,
     fail_over_max_job_total_ms: float | None = None,
     fail_under_throughput_jobs_per_second: float | None = None,
@@ -81,6 +82,18 @@ def run_workflow_load_smoke(
                 int(job_timeout_seconds),
             )
             submitted_jobs.append(submitted)
+
+        if queue_alert_check and sample_queue_after_submit:
+            queue_report = {
+                **queue_report_builder(thresholds=queue_thresholds),
+                "round": round_index,
+                "sample_phase": "after_submit",
+            }
+            queue_alert_reports.append(queue_report)
+            if not queue_report.get("ok"):
+                failures.append(
+                    f"queue alert check failed after submit in round {round_index}"
+                )
 
         completed_jobs = [
             wait_for_workflow_job(
@@ -239,6 +252,7 @@ def main(argv: list[str] | None = None) -> int:
         round_delay_seconds=args.round_delay_seconds,
         queue_thresholds=queue_thresholds,
         queue_alert_check=not args.skip_queue_alert_check,
+        sample_queue_after_submit=args.sample_queue_after_submit,
         fail_over_max_queue_wait_ms=args.fail_over_max_queue_wait_ms,
         fail_over_max_job_total_ms=args.fail_over_max_job_total_ms,
         fail_under_throughput_jobs_per_second=(
@@ -278,6 +292,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-worker-heartbeat-age-seconds", type=int, default=900)
     parser.add_argument("--require-worker", action="store_true")
     parser.add_argument("--skip-queue-alert-check", action="store_true")
+    parser.add_argument("--sample-queue-after-submit", action="store_true")
     parser.add_argument("--fail-over-max-queue-wait-ms", type=float)
     parser.add_argument("--fail-over-max-job-total-ms", type=float)
     parser.add_argument("--fail-under-throughput-jobs-per-second", type=float)

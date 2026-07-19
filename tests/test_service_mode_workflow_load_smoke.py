@@ -67,6 +67,39 @@ def test_run_workflow_load_smoke_fails_latency_gate() -> None:
     assert "queue_wait_ms" in summary["failures"][0]
 
 
+def test_run_workflow_load_smoke_can_sample_queue_after_submit() -> None:
+    reports = [
+        {"ok": True, "alerts": [], "metrics": {"phase": "submit"}},
+        {"ok": True, "alerts": [], "metrics": {"phase": "complete"}},
+    ]
+
+    summary = run_workflow_load_smoke(
+        api_url="http://api",
+        api_key="key",
+        rounds=1,
+        jobs_per_round=1,
+        description="人工确认",
+        poll_interval_seconds=0.01,
+        job_timeout_seconds=1,
+        round_delay_seconds=0,
+        queue_thresholds=QueueAlertThresholds(),
+        queue_alert_check=True,
+        sample_queue_after_submit=True,
+        submit_job=lambda *_, **__: {"id": "job-1", "status": "queued"},
+        get_job=lambda *_, **__: _job("job-1", queue_wait_ms=10),
+        queue_report_builder=lambda **_: reports.pop(0),
+    )
+
+    assert summary["ok"] is True
+    assert summary["queue_alert_reports"][0]["sample_phase"] == "after_submit"
+    assert summary["queue_alert_reports"][0]["round"] == 1
+    assert summary["queue_alert_reports"][1] == {
+        "ok": True,
+        "alerts": [],
+        "metrics": {"phase": "complete"},
+    }
+
+
 def test_main_writes_output_json(monkeypatch, tmp_path, capsys) -> None:
     output_path = tmp_path / "service-mode-smoke.json"
 

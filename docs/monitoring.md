@@ -138,6 +138,24 @@ python scripts/collect_queue_alert_samples.py \
 
 采样脚本每行保存一次完整 `check_queue_alerts.py` report，最终 summary 会输出每个队列的 active、queued、started、failed 和 worker_count 最大值，以及带 headroom 的候选阈值。候选阈值只是观察窗口里的下限参考，不应直接替代完整业务周期、容量压测和告警演练结论。
 
+如果要让采样窗口包含常驻 service-mode workflow load，可以在 API 容器内运行 workload calibration 脚本。它每个样本先提交 deterministic Test Agent workflow job，并收集提交后和完成后的队列告警样本：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.mysql-rq.yml --profile mysql exec api \
+  python scripts/collect_service_mode_calibration.py \
+    --samples 6 \
+    --interval-seconds 5 \
+    --jobs-per-sample 8 \
+    --require-worker \
+    --max-rq-failed 0 \
+    --fail-on-warning \
+    --output-jsonl /tmp/service-mode-calibration-$(date +%Y%m%d)-mysql-rq.jsonl \
+    --output-summary-json /tmp/service-mode-calibration-summary-$(date +%Y%m%d)-mysql-rq.json \
+    --json
+```
+
+该脚本会输出 workflow load 的 job 状态、耗时、吞吐和队列候选阈值。对于本地 deterministic 样本，如果 active/queued/started 最大值为 0，只能说明本地短窗口没有形成积压，不应直接把 0 当成生产阈值。
+
 ## 阈值校准
 
 正式接入后，先观察一个完整业务周期，再调整告警阈值。建议按下面顺序校准：

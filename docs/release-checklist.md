@@ -278,6 +278,25 @@ docker compose -f docker-compose.yml -f docker-compose.mysql-rq.yml --profile my
   --json
 ```
 
+service-mode 阈值采样可以在 API 容器内提交 workflow load，并保存提交后/完成后的队列样本和候选阈值 summary：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.mysql-rq.yml --profile mysql exec api \
+  python scripts/collect_service_mode_calibration.py \
+    --samples 6 \
+    --interval-seconds 5 \
+    --jobs-per-sample 8 \
+    --require-worker \
+    --max-rq-failed 0 \
+    --fail-on-warning \
+    --fail-over-max-queue-wait-ms 60000 \
+    --fail-over-max-job-total-ms 120000 \
+    --fail-under-throughput-jobs-per-second 0.01 \
+    --output-jsonl /tmp/service-mode-calibration-YYYYMMDD-mysql-rq.jsonl \
+    --output-summary-json /tmp/service-mode-calibration-summary-YYYYMMDD-mysql-rq.json \
+    --json
+```
+
 更长时长或并行 worker 演练可以直接运行脚本并提高轮次、每轮 job 数和 worker 数：
 
 ```bash

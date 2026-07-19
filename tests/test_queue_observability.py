@@ -2,6 +2,8 @@ from dataclasses import dataclass
 
 from app.core.config import Settings
 from scripts.check_generation_queue import (
+    GENERATION_RQ_FUNCTION,
+    _count_jobs_for_function,
     build_snapshot,
     build_database_snapshot,
     evaluate_health,
@@ -17,6 +19,11 @@ class FakeJobStore:
         return self.counts
 
 
+@dataclass
+class FakeRQJob:
+    func_name: str
+
+
 def test_database_snapshot_counts_active_jobs() -> None:
     snapshot = build_database_snapshot(
         Settings(database_backend="sqlite"),
@@ -28,6 +35,24 @@ def test_database_snapshot_counts_active_jobs() -> None:
         "jobs_by_status": {"queued": 2, "running": 1, "failed": 3},
         "active_count": 3,
     }
+
+
+def test_rq_count_filters_generation_function() -> None:
+    jobs = {
+        "generation-1": FakeRQJob(GENERATION_RQ_FUNCTION),
+        "workflow-1": FakeRQJob(
+            "app.workers.test_agent_workflow_rq.run_test_agent_workflow_job"
+        ),
+        "generation-2": FakeRQJob(GENERATION_RQ_FUNCTION),
+    }
+
+    count = _count_jobs_for_function(
+        ["generation-1", "workflow-1", "missing", "generation-2"],
+        jobs.get,
+        GENERATION_RQ_FUNCTION,
+    )
+
+    assert count == 2
 
 
 def test_health_reports_rq_database_mismatch() -> None:
@@ -86,6 +111,7 @@ def test_build_snapshot_keeps_database_counts_when_rq_is_unavailable(
         "backend": "rq",
         "active": False,
         "name": "generation",
+        "function": GENERATION_RQ_FUNCTION,
         "error": "RuntimeError: redis unavailable",
     }
     assert snapshot["health"]["ok"] is False

@@ -1,0 +1,149 @@
+{
+  "api_url": "http://127.0.0.1:8000",
+  "calibration_note": "Candidate thresholds are based on service-mode workload samples; validate against a full business cycle before production alerting.",
+  "generated_at": "2026-07-19T02:17:58.175959+00:00",
+  "jobs_per_sample": 8,
+  "load_summary": {
+    "failures": [],
+    "job_count": 48,
+    "jobs_by_status": {
+      "succeeded": 48
+    },
+    "report_status_counts": {
+      "incomplete": 48
+    },
+    "sample_count": 6,
+    "throughput_jobs_per_second": {
+      "avg": 8.837,
+      "max": 10.548,
+      "min": 5.081
+    },
+    "timing_summary_ms": {
+      "job_runtime_ms": {
+        "avg": 20.22,
+        "max": 29.036,
+        "min": 14.818
+      },
+      "job_total_ms": {
+        "avg": 84.564,
+        "max": 141.121,
+        "min": 63.97
+      },
+      "plan_generation_ms": {
+        "avg": 2.305,
+        "max": 4.176,
+        "min": 1.518
+      },
+      "queue_wait_ms": {
+        "avg": 64.344,
+        "max": 112.085,
+        "min": 47.212
+      },
+      "report_build_ms": {
+        "avg": 0.286,
+        "max": 0.965,
+        "min": 0.159
+      },
+      "tool_execution_ms": {
+        "avg": 0.274,
+        "max": 0.618,
+        "min": 0.161
+      },
+      "workflow_total_ms": {
+        "avg": 3.628,
+        "max": 7.578,
+        "min": 2.296
+      }
+    }
+  },
+  "ok": true,
+  "output_jsonl": "/tmp/service-mode-calibration-20260719-mysql-rq.jsonl",
+  "queue_summary": {
+    "alert_counts": {
+      "by_code": {},
+      "by_queue": {},
+      "by_severity": {}
+    },
+    "calibration_note": "Candidate thresholds are observed maxima plus headroom for backlog metrics; validate against a full business cycle before production alerting.",
+    "candidate_thresholds": {
+      "generation": {
+        "max_active_jobs": 0,
+        "max_rq_failed": 0,
+        "max_rq_queued": 0,
+        "max_rq_started": 0
+      },
+      "test_agent_workflow": {
+        "max_active_jobs": 0,
+        "max_rq_failed": 0,
+        "max_rq_queued": 0,
+        "max_rq_started": 0
+      },
+      "test_plan_execution": {
+        "max_active_jobs": 0,
+        "max_rq_failed": 0,
+        "max_rq_queued": 0,
+        "max_rq_started": 0
+      }
+    },
+    "fail_on_warning": true,
+    "generated_at": "2026-07-19T02:17:58.175715+00:00",
+    "observed_at_end": "2026-07-19T02:17:58.051952+00:00",
+    "observed_at_start": "2026-07-19T02:17:28.282091+00:00",
+    "observed_metrics": {
+      "generation": {
+        "max": {
+          "database_active_jobs": 0,
+          "rq_deferred": 0,
+          "rq_failed": 0,
+          "rq_finished": 0,
+          "rq_queued": 0,
+          "rq_scheduled": 0,
+          "rq_started": 0,
+          "worker_count": 2
+        },
+        "min_worker_count": 2,
+        "sample_count": 12
+      },
+      "test_agent_workflow": {
+        "max": {
+          "database_active_jobs": 0,
+          "rq_deferred": 0,
+          "rq_failed": 0,
+          "rq_finished": 96,
+          "rq_queued": 0,
+          "rq_scheduled": 0,
+          "rq_started": 0,
+          "worker_count": 2
+        },
+        "min_worker_count": 2,
+        "sample_count": 12
+      },
+      "test_plan_execution": {
+        "max": {
+          "database_active_jobs": 0,
+          "rq_deferred": 0,
+          "rq_failed": 0,
+          "rq_finished": 0,
+          "rq_queued": 0,
+          "rq_scheduled": 0,
+          "rq_started": 0,
+          "worker_count": 2
+        },
+        "min_worker_count": 2,
+        "sample_count": 12
+      }
+    },
+    "ok": true,
+    "output_jsonl": "/tmp/service-mode-calibration-20260719-mysql-rq.jsonl",
+    "sample_count": 12,
+    "thresholds": {
+      "max_active_jobs": null,
+      "max_rq_failed": 0,
+      "max_rq_queued": null,
+      "max_rq_started": null,
+      "max_worker_heartbeat_age_seconds": 900,
+      "require_worker": true
+    }
+  },
+  "sample_count": 6
+}

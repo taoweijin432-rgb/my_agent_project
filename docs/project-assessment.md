@@ -82,7 +82,7 @@
 
 ### 4.6 生产数据库和队列稳定性
 
-MySQL 与 Redis/RQ 已具备可操作基线，但默认仍是 SQLite/in-memory。Redis/MySQL 短暂不可用演练、队列告警阈值、测试计划执行 job MySQL 持久化、测试 Agent workflow MySQL/RQ service-mode smoke、12 job 多轮负载 smoke、2 worker 40 job 负载演练、Redis/MySQL 依赖抖动恢复演练和 MySQL 连接超时参数已补齐；真正生产化前还需要更长时长稳定性、备份恢复定期验证、连接池取舍和容量评估。
+MySQL 与 Redis/RQ 已具备可操作基线，但默认仍是 SQLite/in-memory。Redis/MySQL 短暂不可用演练、队列告警阈值、测试计划执行 job MySQL 持久化、测试 Agent workflow MySQL/RQ service-mode smoke、12 job 多轮负载 smoke、2 worker 40 job 负载演练、Redis/MySQL 依赖抖动恢复演练、service-mode 短窗口阈值采样和 MySQL 连接超时参数已补齐；真正生产化前还需要更长时长稳定性、备份恢复定期验证、连接池取舍和容量评估。
 
 ### 4.7 队列一致性和失败恢复
 
@@ -112,7 +112,7 @@ queued/running stale 恢复已经覆盖测试计划执行和测试 Agent workflo
 | P1 | 公网部署权限不足 | API key 可用，但无用户/RBAC/项目隔离/审计 | 公网前必须加网关、TLS、用户、权限和审计设计 |
 | P1 | 线上不可观测 | 有 readiness/queue check、内部 metrics、告警模板、示例配置和离线验证，无正式采集/告警 | 接入真实 Prometheus/Alertmanager，校准阈值并演练通知 |
 | P1 | 真实模型质量随模型切换漂移 | 已有真实 LLM strict eval 和 benchmark 入口，样本仍需扩展 | 模型切换后必须跑真实 strict eval，并记录耗时、retry、timeout 和 429 趋势 |
-| P1 | 生产数据库和队列容量未知 | MySQL/RQ service-mode、12 job 基线、2 worker 40 job 负载演练和依赖抖动恢复演练可用，但长时和完整业务周期阈值仍不足 | 做更长时长运行和完整业务周期阈值校准 |
+| P1 | 生产数据库和队列容量未知 | MySQL/RQ service-mode、12 job 基线、2 worker 40 job 负载演练、依赖抖动恢复演练和短窗口阈值采样可用，但长时和完整业务周期阈值仍不足 | 做更长时长运行和完整业务周期阈值校准 |
 | P1 | 队列一致性和失败恢复 | stale active job 恢复已补，RQ/DB 组合异常仍需实机验证 | 定期运行 Redis/MySQL outage、RQ worker stability 和 workflow RQ/MySQL smoke |
 | P2 | RAG 质量随知识库变化漂移 | 有固定评估，无线上召回监控和 rerank/hybrid 对比 | 扩评估集，记录召回趋势，评估 metadata filter、rerank 和 hybrid search |
 | P2 | 部署安全依赖外部环境 | 应用内配置校验已加强，TLS/WAF/密钥托管/网络隔离不在应用内 | 生产部署必须走网关、HTTPS、集中密钥管理和网络隔离 |

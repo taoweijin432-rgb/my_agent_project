@@ -4,7 +4,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 project_root = Path(__file__).resolve().parents[1]
 if str(project_root) not in sys.path:
@@ -16,6 +16,7 @@ from app.services.stores import GenerationJobRepository, create_generation_job_s
 
 ACTIVE_STATUSES = ("queued", "running")
 RQ_ACTIVE_REGISTRIES = ("queued", "started", "deferred", "scheduled")
+GENERATION_RQ_FUNCTION = "app.workers.generation_rq.run_generation_job"
 
 
 @dataclass(frozen=True)
@@ -68,15 +69,36 @@ def build_rq_snapshot(settings: Settings) -> dict[str, Any]:
         for worker in Worker.all(connection=connection)
         if _worker_is_relevant(worker, queue.name)
     ]
-    return {
-        "backend": "rq",
-        "active": True,
-        "name": queue.name,
+    fetch_job = queue.fetch_job
+    function_counts = {
+        "queued": _count_jobs_for_function(
+            queue.get_job_ids(),
+            fetch_job,
+            GENERATION_RQ_FUNCTION,
+        ),
+        **{
+            name: _count_jobs_for_function(
+                registry.get_job_ids(),
+                fetch_job,
+                GENERATION_RQ_FUNCTION,
+            )
+            for name, registry in registries.items()
+        },
+    }
+    total_counts = {
         "queued": _count_value(queue),
         **{
             name: _count_value(registry)
             for name, registry in registries.items()
         },
+    }
+    return {
+        "backend": "rq",
+        "active": True,
+        "name": queue.name,
+        "function": GENERATION_RQ_FUNCTION,
+        **function_counts,
+        "total": total_counts,
         "workers": workers,
         "worker_count": len(workers),
     }
@@ -103,6 +125,7 @@ def build_snapshot(
                 "backend": "rq",
                 "active": False,
                 "name": effective_settings.rq_queue_name,
+                "function": GENERATION_RQ_FUNCTION,
                 "error": f"{type(exc).__name__}: {exc}",
             }
     snapshot["health"] = evaluate_health(database, snapshot["queue"]).__dict__
@@ -169,6 +192,7 @@ def print_text(snapshot: dict[str, Any]) -> None:
     print(f"  backend: {queue['backend']}")
     if queue.get("backend") == "rq":
         print(f"  name: {queue['name']}")
+        print(f"  function: {queue.get('function') or '-'}")
         if queue.get("error"):
             print(f"  error: {queue['error']}")
         else:
@@ -182,6 +206,10 @@ def print_text(snapshot: dict[str, Any]) -> None:
                 "worker_count",
             ):
                 print(f"  {field}: {queue[field]}")
+            if queue.get("total"):
+                print("  total_queue_counts:")
+                for field, count in sorted(queue["total"].items()):
+                    print(f"    {field}: {count}")
             if queue["workers"]:
                 print("  workers:")
                 for worker in queue["workers"]:
@@ -256,6 +284,19 @@ def _count_value(value: object) -> int:
     if get_job_ids is not None:
         return len(get_job_ids())
     return len(value)  # type: ignore[arg-type]
+
+
+def _count_jobs_for_function(
+    job_ids: list[str],
+    fetch_job: Callable[[str], Any],
+    function_name: str,
+) -> int:
+    count = 0
+    for job_id in job_ids:
+        job = fetch_job(str(job_id))
+        if job is not None and getattr(job, "func_name", None) == function_name:
+            count += 1
+    return count
 
 
 def _worker_snapshot(worker: object) -> dict[str, Any]:
