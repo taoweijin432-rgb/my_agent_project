@@ -1,5 +1,6 @@
 import argparse
 import json
+import math
 import os
 import sys
 import time
@@ -26,6 +27,7 @@ from scripts.smoke_service_mode_workflow_load import (
 
 LoadRunner = Callable[..., dict[str, Any]]
 Sleep = Callable[[float], None]
+DEFAULT_SAMPLE_COUNT = 3
 
 
 def collect_service_mode_calibration(
@@ -229,11 +231,16 @@ def main(argv: list[str] | None = None) -> int:
         require_worker=args.require_worker,
     )
     api_key = args.api_key or _default_api_key()
+    sample_count = resolve_sample_count(
+        samples=args.samples,
+        duration_seconds=args.duration_seconds,
+        interval_seconds=args.interval_seconds,
+    )
     summary = collect_service_mode_calibration(
         output_jsonl=args.output_jsonl or _default_output_jsonl(),
         api_url=args.api_url,
         api_key=api_key,
-        sample_count=args.samples,
+        sample_count=sample_count,
         interval_seconds=args.interval_seconds,
         jobs_per_sample=args.jobs_per_sample,
         description=args.description,
@@ -269,7 +276,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--api-url", default="http://127.0.0.1:8000")
     parser.add_argument("--api-key")
-    parser.add_argument("--samples", type=_positive_int, default=3)
+    sample_group = parser.add_mutually_exclusive_group()
+    sample_group.add_argument("--samples", type=_positive_int)
+    sample_group.add_argument("--duration-seconds", type=_positive_float)
     parser.add_argument("--interval-seconds", type=_non_negative_float, default=60.0)
     parser.add_argument("--jobs-per-sample", type=_positive_int, default=4)
     parser.add_argument("--description", default=DEFAULT_DESCRIPTION)
@@ -290,7 +299,25 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--output-jsonl", type=Path)
     parser.add_argument("--output-summary-json", type=Path)
     parser.add_argument("--json", action="store_true")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.duration_seconds is not None and args.interval_seconds <= 0:
+        parser.error("--duration-seconds requires --interval-seconds > 0")
+    return args
+
+
+def resolve_sample_count(
+    *,
+    samples: int | None,
+    duration_seconds: float | None,
+    interval_seconds: float,
+) -> int:
+    if samples is not None:
+        return samples
+    if duration_seconds is None:
+        return DEFAULT_SAMPLE_COUNT
+    if interval_seconds <= 0:
+        raise ValueError("--duration-seconds requires --interval-seconds > 0")
+    return max(1, math.ceil(duration_seconds / interval_seconds) + 1)
 
 
 def _default_api_key() -> str:

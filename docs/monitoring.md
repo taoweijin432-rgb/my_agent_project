@@ -156,6 +156,8 @@ docker compose -f docker-compose.yml -f docker-compose.mysql-rq.yml --profile my
 
 该脚本会输出 workflow load 的 job 状态、耗时、吞吐和队列候选阈值。对于本地 deterministic 样本，如果 active/queued/started 最大值为 0，只能说明本地短窗口没有形成积压，不应直接把 0 当成生产阈值。
 
+更长窗口可以把 `--samples` 替换为 `--duration-seconds`，脚本会按 `ceil(duration / interval) + 1` 推导样本数。例如 `--duration-seconds 3600 --interval-seconds 60` 会覆盖约 1 小时采样窗口。
+
 ## 阈值校准
 
 正式接入后，先观察一个完整业务周期，再调整告警阈值。建议按下面顺序校准：

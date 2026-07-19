@@ -1,11 +1,14 @@
 import json
 from importlib import import_module
 
+import pytest
+
 from scripts.check_queue_alerts import QueueAlertThresholds
 from scripts.collect_service_mode_calibration import (
     build_load_summary,
     collect_service_mode_calibration,
     main,
+    resolve_sample_count,
 )
 
 
@@ -112,6 +115,35 @@ def test_build_load_summary_aggregates_timings() -> None:
         "max": 1.0,
         "min": 1.0,
     }
+
+
+def test_resolve_sample_count_from_duration() -> None:
+    assert resolve_sample_count(
+        samples=None,
+        duration_seconds=None,
+        interval_seconds=5,
+    ) == 3
+    assert resolve_sample_count(
+        samples=4,
+        duration_seconds=None,
+        interval_seconds=5,
+    ) == 4
+    assert resolve_sample_count(
+        samples=None,
+        duration_seconds=60,
+        interval_seconds=15,
+    ) == 5
+    assert resolve_sample_count(
+        samples=None,
+        duration_seconds=61,
+        interval_seconds=15,
+    ) == 6
+    with pytest.raises(ValueError, match="interval-seconds"):
+        resolve_sample_count(
+            samples=None,
+            duration_seconds=60,
+            interval_seconds=0,
+        )
 
 
 def test_main_writes_summary_json(monkeypatch, tmp_path, capsys) -> None:

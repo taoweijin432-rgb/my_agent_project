@@ -338,6 +338,8 @@ docker compose -f docker-compose.yml -f docker-compose.mysql-rq.yml --profile my
     --json
 ```
 
+更长时长采样时可以把 `--samples 6` 替换成 `--duration-seconds 3600 --interval-seconds 60`；`--samples` 和 `--duration-seconds` 二选一，后者会按目标窗口自动推导样本数。
+
 最终队列检查证据保存在 `data/ops-drills/queue-alerts-20260718-rq-mysql-after-smoke.json`。本次运行镜像尚未包含新加的 `--output-json` 参数，因此 Compose 内证据通过 `--json` stdout 重定向保存；后续重建镜像后可直接使用 `--output-json`。
 
 短窗口采样证据保存在：

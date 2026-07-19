@@ -297,6 +297,8 @@ docker compose -f docker-compose.yml -f docker-compose.mysql-rq.yml --profile my
     --json
 ```
 
+需要完整业务周期采样时，把 `--samples` 替换为 `--duration-seconds`，例如 `--duration-seconds 3600 --interval-seconds 60`。两者互斥，按时长采样会自动推导样本数并覆盖目标窗口。
+
 更长时长或并行 worker 演练可以直接运行脚本并提高轮次、每轮 job 数和 worker 数：
 
 ```bash
