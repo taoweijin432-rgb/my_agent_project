@@ -1,6 +1,6 @@
 # 项目当前评估
 
-评估日期：2026-07-18
+评估日期：2026-07-19
 
 ## 1. 总体结论
 
@@ -62,7 +62,7 @@
 
 运行结果统一脱敏已经完成：共享 redaction 工具覆盖 artifact、`ToolRun.output_summary`、HTTP JSON assertion 失败信息、pytest 输出摘要、报告 evidence、Markdown/JSON 导出、API 返回、历史记录和异常日志，回归测试已纳入默认发布检查。
 
-剩余风险不再是应用内输出脱敏闭环，而是生产数据治理：真实密钥托管、生产样本准入、敏感数据分级、删除审计、备份介质保护和发布前 secret scanning 仍需制度化。
+剩余风险不再是应用内输出脱敏闭环；发布前 secret scanning 已通过 `scripts/check_secrets.py` 接入默认 release checks。生产数据治理仍需制度化：真实密钥托管、生产样本准入、敏感数据分级、删除审计和备份介质保护仍依赖部署与流程。
 
 ### 4.2 权限和租户隔离
 
@@ -108,7 +108,7 @@ queued/running stale 恢复已经覆盖测试计划执行和测试 Agent workflo
 
 | 优先级 | 风险 | 当前状态 | 建议 |
 | --- | --- | --- | --- |
-| P0 | 真实密钥或私有资料误发布 | 运行结果统一脱敏、ignore 和文档整合已降低风险，但生产密钥托管和发布前 secret scanning 仍需制度化 | 发布前继续做敏感信息扫描，保留 `.env.runtime`、缓存和 benchmark history 的 ignore，并把真实密钥交给部署侧密钥管理 |
+| P0 | 真实密钥或私有资料误发布 | 运行结果统一脱敏、ignore、文档整合和默认 release secret scan 已降低风险，但生产密钥托管仍需制度化 | 发布前保留 `scripts/check_secrets.py` 扫描，保留 `.env.runtime`、缓存和 benchmark history 的 ignore，并把真实密钥交给部署侧密钥管理 |
 | P1 | 公网部署权限不足 | API key 可用，但无用户/RBAC/项目隔离/审计 | 公网前必须加网关、TLS、用户、权限和审计设计 |
 | P1 | 线上不可观测 | 有 readiness/queue check、内部 metrics、告警模板、示例配置和离线验证，无正式采集/告警 | 接入真实 Prometheus/Alertmanager，校准阈值并演练通知 |
 | P1 | 真实模型质量随模型切换漂移 | 已有真实 LLM strict eval 和 benchmark 入口，样本仍需扩展 | 模型切换后必须跑真实 strict eval，并记录耗时、retry、timeout 和 429 趋势 |
@@ -129,7 +129,7 @@ queued/running stale 恢复已经覆盖测试计划执行和测试 Agent workflo
 - 将内部 metrics JSON/Prometheus 输出接入真实监控系统，并按完整业务周期校准业务阶段失败率、耗时和队列阈值。
 - 把 2 worker service-mode 演练扩展为更长时长运行和完整业务周期采样，并把结果写入运维证据。
 - 为队列积压、RQ failed registry、生成失败率、service-mode worker 缺失和 readiness 失败定义正式告警路由。
-- 保持运行结果脱敏回归和发布前 secret scanning，避免真实样本或密钥进入仓库、日志和 benchmark history。
+- 保持运行结果脱敏回归和默认 release secret scan，避免真实样本或密钥进入仓库、日志和 benchmark history。
 - 把真实 LLM strict workflow eval 和 benchmark history 纳入模型切换检查，记录通过率、失败码、timeout、retry、429 和阶段耗时。
 
 第二优先级：权限和数据边界

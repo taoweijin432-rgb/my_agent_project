@@ -78,8 +78,10 @@ DEFAULT_PYTEST_TARGETS = [
     "tests/test_rag_evaluation.py",
     "tests/test_readiness.py",
     "tests/test_recovery_smoke.py",
+    "tests/test_release_checks.py",
     "tests/test_runtime_dependency_outage_smoke.py",
     "tests/test_rq_mysql_worker_stability_smoke.py",
+    "tests/test_secret_scan.py",
     "tests/test_service_mode_calibration.py",
     "tests/test_service_mode_dependency_jitter_smoke.py",
     "tests/test_service_mode_workflow_load_smoke.py",
@@ -219,6 +221,11 @@ def parse_args() -> argparse.Namespace:
         "--skip-diff-check",
         action="store_true",
         help="Skip `git diff --check`.",
+    )
+    parser.add_argument(
+        "--skip-secret-scan",
+        action="store_true",
+        help="Skip local committed secret scanning.",
     )
     parser.add_argument(
         "--fail-fast",
@@ -716,6 +723,17 @@ def build_default_commands(args: argparse.Namespace) -> list[CheckCommand]:
                     env=DEFAULT_TEST_AGENT_WORKFLOW_QUEUE_OBSERVABILITY_ENV,
                 ),
             ]
+        )
+    if not args.skip_secret_scan:
+        commands.append(
+            CheckCommand(
+                name="secret-scan",
+                command=[
+                    args.python,
+                    "scripts/check_secrets.py",
+                    "--json",
+                ],
+            )
         )
     if not args.skip_diff_check:
         commands.append(

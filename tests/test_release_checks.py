@@ -18,6 +18,7 @@ def _args(**overrides):
         "skip_monitoring_check": False,
         "skip_queue_check": False,
         "skip_diff_check": False,
+        "skip_secret_scan": False,
         "include_llm_test_plan_eval": False,
         "include_llm_workflow_eval": False,
         "include_llm_workflow_benchmark": False,
@@ -54,6 +55,7 @@ def test_release_checks_include_rag_pytest_and_diff_by_default() -> None:
         "generation-queue-check",
         "test-plan-execution-queue-check",
         "test-agent-workflow-queue-check",
+        "secret-scan",
         "git-diff-check",
     ]
     assert commands[0].env["CHROMA_COLLECTION"] == "login_rag_eval_hash"
@@ -64,8 +66,10 @@ def test_release_checks_include_rag_pytest_and_diff_by_default() -> None:
     assert "tests/test_generate_api.py" in commands[4].command
     assert "tests/test_middleware.py" in commands[4].command
     assert "tests/test_queue_alerts.py" in commands[4].command
+    assert "tests/test_release_checks.py" in commands[4].command
     assert "tests/test_runtime_dependency_outage_smoke.py" in commands[4].command
     assert "tests/test_rq_mysql_worker_stability_smoke.py" in commands[4].command
+    assert "tests/test_secret_scan.py" in commands[4].command
     assert "tests/test_test_agent_workflow_rq_mysql_smoke.py" in commands[4].command
     assert "tests/test_test_agent_workflow.py" in commands[4].command
     assert "tests/test_test_agent_workflow_evaluation.py" in commands[4].command
@@ -111,6 +115,7 @@ def test_release_checks_include_rag_pytest_and_diff_by_default() -> None:
     assert "scripts/check_test_plan_execution_queue.py" in commands[16].command
     assert commands[17].env["GENERATION_JOB_QUEUE_BACKEND"] == "in_memory"
     assert "scripts/check_test_agent_workflow_queue.py" in commands[17].command
+    assert "scripts/check_secrets.py" in commands[18].command
 
 
 def test_release_checks_can_skip_expensive_sections() -> None:
@@ -133,6 +138,7 @@ def test_release_checks_can_skip_expensive_sections() -> None:
 
     assert [command.name for command in commands] == [
         "type-check-test-agent",
+        "secret-scan",
         "git-diff-check",
     ]
 
@@ -155,6 +161,28 @@ def test_release_checks_can_skip_type_check() -> None:
         )
     )
 
+    assert [command.name for command in commands] == ["secret-scan", "git-diff-check"]
+
+
+def test_release_checks_can_skip_secret_scan() -> None:
+    commands = build_default_commands(
+        _args(
+            skip_rag_eval=True,
+            skip_pytest=True,
+            skip_test_plan_eval=True,
+            skip_test_report_eval=True,
+            skip_test_execution_eval=True,
+            skip_test_agent_workflow_eval=True,
+            skip_type_check=True,
+            skip_recovery_smoke=True,
+            skip_readiness_check=True,
+            skip_monitoring_check=True,
+            skip_queue_check=True,
+            skip_secret_scan=True,
+            skip_diff_check=False,
+        )
+    )
+
     assert [command.name for command in commands] == ["git-diff-check"]
 
 
@@ -172,6 +200,7 @@ def test_release_checks_can_include_real_llm_test_plan_eval() -> None:
             skip_readiness_check=True,
             skip_monitoring_check=True,
             skip_queue_check=True,
+            skip_secret_scan=True,
             skip_diff_check=True,
             include_llm_test_plan_eval=True,
         )
@@ -197,6 +226,7 @@ def test_release_checks_can_include_real_llm_workflow_eval() -> None:
             skip_readiness_check=True,
             skip_monitoring_check=True,
             skip_queue_check=True,
+            skip_secret_scan=True,
             skip_diff_check=True,
             include_llm_workflow_eval=True,
         )
@@ -236,6 +266,7 @@ def test_release_checks_can_include_real_llm_workflow_benchmark() -> None:
             skip_readiness_check=True,
             skip_monitoring_check=True,
             skip_queue_check=True,
+            skip_secret_scan=True,
             skip_diff_check=True,
             include_llm_workflow_benchmark=True,
         )
@@ -270,6 +301,7 @@ def test_release_checks_can_include_runtime_outage_smoke() -> None:
             skip_readiness_check=True,
             skip_monitoring_check=True,
             skip_queue_check=True,
+            skip_secret_scan=True,
             skip_diff_check=True,
             include_runtime_outage_smoke=True,
         )
@@ -295,6 +327,7 @@ def test_release_checks_can_include_rq_mysql_worker_stability_smoke() -> None:
             skip_readiness_check=True,
             skip_monitoring_check=True,
             skip_queue_check=True,
+            skip_secret_scan=True,
             skip_diff_check=True,
             include_rq_mysql_worker_stability_smoke=True,
         )
@@ -320,6 +353,7 @@ def test_release_checks_can_include_test_agent_workflow_rq_mysql_smoke() -> None
             skip_readiness_check=True,
             skip_monitoring_check=True,
             skip_queue_check=True,
+            skip_secret_scan=True,
             skip_diff_check=True,
             include_test_agent_workflow_rq_mysql_smoke=True,
         )
@@ -345,6 +379,7 @@ def test_release_checks_can_include_queue_alert_check() -> None:
             skip_readiness_check=True,
             skip_monitoring_check=True,
             skip_queue_check=True,
+            skip_secret_scan=True,
             skip_diff_check=True,
             include_queue_alert_check=True,
         )
@@ -368,6 +403,7 @@ def test_release_checks_can_skip_monitoring_metrics_check() -> None:
             skip_readiness_check=True,
             skip_monitoring_check=True,
             skip_queue_check=True,
+            skip_secret_scan=True,
             skip_diff_check=True,
         )
     )

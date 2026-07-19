@@ -8,7 +8,7 @@
 
 - 工程基线、前端可维护性和功能落地增强已完成主要目标。
 - 生产运行边界处于收尾阶段，Redis/RQ + MySQL 的多轮、多 worker 稳定性验证、测试 Agent workflow job 的 Docker/RQ + MySQL 实机 smoke、常驻 API/worker service-mode 对齐、12 job 多轮负载 smoke、2 worker 40 job 负载演练、Redis/MySQL 依赖抖动恢复演练和 service-mode 短窗口阈值采样已具备可重复演练入口；测试 Agent workflow 已新增耗时观测字段、真实 LLM attempt 级调用 metrics、错误分类 retry/backoff、阶段失败码、真实 LLM benchmark 入口、JSONL 历史记录、strict 测评模式、eval summary 汇总、前端详情展示、worker 吞吐 summary、吞吐阈值门禁、报告摘要事实门禁、报告原因分类门禁、原因感知建议门禁、报告建议 grounding 门禁、next-action 质量门禁和证据 artifact/output 可追溯性门禁。HTTP adapter 已支持声明式 `json_assertions`，可在状态码通过时继续校验响应 JSON 字段。真实 LLM workflow eval 已支持按 `--case-id`/`--case-slice` 分批和 `--case-delay-seconds` 串行限速，429 会作为 `rate_limited` 进入可重试错误分类。2026-07-15 使用当前默认模型 `glm-4-flash` 完成当前 15 条需求到报告样本的真实 LLM strict 覆盖：原 11 条全量 strict eval 与新增 4 条真实业务样本分批 strict eval 均为 `case_pass_rate=1.0`，所有质量门禁为 1.0，无 fallback、无 retry、无 timeout/429；新增 4 条在 `json_assertions` 新契约下 `plan_generation.avg=29567.073ms`、`max=35863.873ms`。这说明当前模型下输出契约和耗时都可控，之前长耗时问题应按模型/上游差异处理。默认 deterministic workflow eval 已扩展到 15 条样本，覆盖 HTTP、pytest、SQL adapter 缺失、manual skipped、422 参数校验失败、金额不一致、异步终态不一致、前置失败和回调幂等冲突，其中金额不一致和异步终态不一致已通过 JSON 字段断言表达，但 deterministic 路径只作为快速回归保护，不作为模型约束效果结论。当前重点转向更长时长、完整业务周期阈值校准、真实模型强门禁常态化和生产监控接入。
-- 安全收口的运行结果统一脱敏已完成：共享 redaction 工具覆盖 artifact、`ToolRun.output_summary`、HTTP JSON assertion mismatch、pytest summary、报告 evidence、Markdown/JSON 导出、API 返回、历史记录和异常日志；后续安全重点转向真实密钥托管、发布前 secret scanning、敏感数据分级和生产样本准入。
+- 安全收口的运行结果统一脱敏已完成：共享 redaction 工具覆盖 artifact、`ToolRun.output_summary`、HTTP JSON assertion mismatch、pytest summary、报告 evidence、Markdown/JSON 导出、API 返回、历史记录和异常日志；发布前 secret scan 已接入默认 release checks；后续安全重点转向真实密钥托管、敏感数据分级和生产样本准入。
 - RAG 质量治理已具备固定评估入口，后续要扩大真实业务样本和失败归因维度。
 
 后续路线：
@@ -107,6 +107,7 @@ cd frontend && npm test && npm run build
 13. 增加常驻服务模式 workflow 负载 smoke。已完成：`scripts/smoke_service_mode_workflow_load.py` 通过运行中的 HTTP API 提交 deterministic Test Agent workflow job，由常驻 worker 消费，并在每轮后执行队列 alert 检查；脚本输出 job 状态、报告状态、排队耗时、job 总耗时、workflow 阶段耗时和吞吐 summary，支持延迟/吞吐阈值门禁和 JSON 证据。2026-07-18 MySQL/RQ service-mode 证据包括 3 轮、每轮 4 job 的 12 job 基线，以及 2 worker、5 轮、每轮 8 job 的 40 job 演练；两次均全部 `succeeded`，队列告警每轮 `ok=true`。
 14. 增加常驻服务模式依赖抖动组合演练。已完成：`scripts/smoke_service_mode_dependency_jitter.py` 在运行中的 service-mode 栈上扩容 worker、执行基线 load、短暂停 Redis/MySQL、验证 outage 期 `check_queue_alerts.py` 以可解释错误失败，再验证恢复后 readiness、queue alerts 和 workflow load 均成功；2026-07-18 证据覆盖 Redis/RQ `ConnectionError`、MySQL `OperationalError`、3 次恢复 load 共 6 个 job 全部 `succeeded`，每次 load 的 workflow 队列 `worker_count=2` 且 alerts 为空。
 15. 增加 service-mode workload calibration。已完成：`scripts/collect_service_mode_calibration.py` 每个样本提交 deterministic workflow load，并汇总提交后和完成后的 queue alert reports；脚本支持 `--samples` 短窗口采样，也支持 `--duration-seconds` 按目标运行窗口自动推导样本数。2026-07-19 本地短窗口证据为 6 个样本、每样本 8 job，48 个 workflow job 全部 `succeeded`，12 个队列样本均无 warning/error，三类队列 `worker_count` 最小值均为 2。同步修正 generation queue 在共享 RQ 队列中的 job function 过滤，避免 workflow started job 被误判为 generation 队列不一致。
+16. 增加发布前 secret scan。已完成：`scripts/check_secrets.py` 默认扫描 git 已跟踪和待提交文件，识别高置信度 API key、token、私钥、JWT 和环境变量式密钥，输出脱敏 finding summary，并已接入 `scripts/run_release_checks.py` 默认检查；测试 fixture 中的明确假值和 `.env.example` 占位值会被允许。
 
 ## 阶段 4：RAG 质量治理
 

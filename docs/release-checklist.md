@@ -64,6 +64,7 @@ git diff --check
 - 生成队列观测检查，输出数据库任务状态统计、队列快照和健康判断，默认使用临时 SQLite/in-memory 配置避免污染本地数据。
 - 测试计划执行队列观测检查，按 job function 过滤共享 RQ 队列中的执行任务，避免把生成任务混进统计。
 - 测试 Agent workflow 队列观测检查，按 job function 过滤共享 RQ 队列中的 workflow 任务，避免把用例生成任务和测试计划执行任务混进统计。
+- 发布前 secret scan，扫描已跟踪和待提交文件中的高置信度 API key、token、私钥、JWT 和环境变量式密钥；需要临时跳过时使用 `--skip-secret-scan`。
 - `git diff --check`。
 
 可选真实模型验证：
