@@ -246,6 +246,11 @@ def parse_args() -> argparse.Namespace:
         help="Run optional real FastAPI + RAG + LLM strong-gate smoke.",
     )
     parser.add_argument(
+        "--include-frontend-check",
+        action="store_true",
+        help="Run optional frontend Vitest and production build checks.",
+    )
+    parser.add_argument(
         "--include-llm-test-plan-eval",
         action="store_true",
         help="Run optional real LLM test-plan evaluation without deterministic fallback.",
@@ -399,6 +404,19 @@ def build_default_commands(args: argparse.Namespace) -> list[CheckCommand]:
                 name="type-check-test-agent",
                 command=[args.python, "-m", "mypy", *DEFAULT_TYPE_CHECK_TARGETS],
             )
+        )
+    if args.include_frontend_check:
+        commands.extend(
+            [
+                CheckCommand(
+                    name="frontend-test",
+                    command=["npm", "--prefix", "frontend", "test"],
+                ),
+                CheckCommand(
+                    name="frontend-build",
+                    command=["npm", "--prefix", "frontend", "run", "build"],
+                ),
+            ]
         )
     if not args.skip_test_plan_eval:
         commands.append(

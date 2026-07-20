@@ -131,3 +131,9 @@ cd frontend
 npm test
 npm run build
 ```
+
+也可以在已安装前端依赖后使用统一入口：
+
+```bash
+./.venv/bin/python scripts/run_release_checks.py --include-frontend-check
+```

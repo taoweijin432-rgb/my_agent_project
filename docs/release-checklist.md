@@ -384,6 +384,12 @@ npm test
 npm run build
 ```
 
+已安装前端依赖后，也可用统一入口触发同一组前端检查：
+
+```bash
+./.venv/bin/python scripts/run_release_checks.py --include-frontend-check
+```
+
 如需执行真实 LLM 强门控 smoke，显式增加：
 
 ```bash

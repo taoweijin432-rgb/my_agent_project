@@ -19,6 +19,7 @@ def _args(**overrides):
         "skip_queue_check": False,
         "skip_diff_check": False,
         "skip_secret_scan": False,
+        "include_frontend_check": False,
         "include_llm_test_plan_eval": False,
         "include_llm_workflow_eval": False,
         "include_llm_workflow_benchmark": False,
@@ -196,6 +197,31 @@ def test_release_checks_can_skip_secret_scan() -> None:
     )
 
     assert [command.name for command in commands] == ["git-diff-check"]
+
+
+def test_release_checks_can_include_frontend_check() -> None:
+    commands = build_default_commands(
+        _args(
+            skip_rag_eval=True,
+            skip_pytest=True,
+            skip_test_plan_eval=True,
+            skip_test_report_eval=True,
+            skip_test_execution_eval=True,
+            skip_test_agent_workflow_eval=True,
+            skip_type_check=True,
+            skip_recovery_smoke=True,
+            skip_readiness_check=True,
+            skip_monitoring_check=True,
+            skip_queue_check=True,
+            skip_secret_scan=True,
+            skip_diff_check=True,
+            include_frontend_check=True,
+        )
+    )
+
+    assert [command.name for command in commands] == ["frontend-test", "frontend-build"]
+    assert commands[0].command == ["npm", "--prefix", "frontend", "test"]
+    assert commands[1].command == ["npm", "--prefix", "frontend", "run", "build"]
 
 
 def test_release_checks_can_include_real_llm_test_plan_eval() -> None:
