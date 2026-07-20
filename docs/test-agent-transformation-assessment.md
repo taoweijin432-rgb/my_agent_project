@@ -116,7 +116,7 @@
 
 - deterministic/固定测评集用于快速回归，不推荐用于判断真实模型约束效果。
 - 真实 LLM strict workflow eval 才用于验证 Prompt、模型输出、adapter 契约归一化和报告门禁是否真正约束住当前模型。
-- 2026-07-15 当前默认模型 `glm-4-flash` 已覆盖当前 15 个需求到报告样本：原 11 个样本全量 strict eval 与新增 4 个真实业务样本在 `json_assertions` 新契约下分批 strict eval 均通过，无 fallback、无 retry、无 timeout/429。
+- 2026-07-20 当前默认模型 `glm-4-flash` 已覆盖当前 18 个需求到报告样本：全量 strict eval 通过，所有质量门禁为 1.0，无 fallback、无 retry、无 timeout/429；`plan_generation.avg=28370.313ms`、`plan_generation.max=50612.814ms`。
 
 ## 3. 当前工程质量
 
@@ -149,7 +149,7 @@
 | 执行队列可观测性 | 低 | 测试计划执行 job 已补专门的队列观测脚本、worker smoke、queue alert 阈值检查和 MySQL 持久化路径 | 后续继续补更长时间运行验证 |
 | 工具参数契约漂移 | 低 | adapter 入口已有强类型参数模型，但 planner 输出仍是通用 JSON object | 下一步可评估 discriminated union 或在 planner 后增加 plan validation gate |
 | 报告幻觉 | 低 | 当前报告不调用 LLM | 后续 LLM 报告必须引用结构化证据 |
-| 测评集过小 | 中 | 当前已覆盖计划生成、报告事实一致性、端到端执行、SQLite/in-memory runtime smoke、Redis/MySQL outage smoke、RQ worker stability smoke 和 15 条真实 LLM workflow strict 样本，但真实业务域仍不够多 | 从登录、退款、权限、UI、数据库和真实执行环境继续扩展，并优先用真实 LLM strict eval 验证 |
+| 测评集过小 | 中 | 当前已覆盖计划生成、报告事实一致性、端到端执行、SQLite/in-memory runtime smoke、Redis/MySQL outage smoke、RQ worker stability smoke 和 18 条真实 LLM workflow strict 样本，但真实业务域仍不够多 | 从登录、退款、权限、UI、数据库和真实执行环境继续扩展，并优先用真实 LLM strict eval 验证 |
 | 模型切换质量漂移 | 中 | 当前模型下无 timeout/429，之前慢调用更像模型或上游状态差异 | 模型切换后重新跑真实 LLM strict eval，并记录 benchmark history |
 
 ## 5. 下一阶段优先级

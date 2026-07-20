@@ -33,7 +33,7 @@
 质量和验证：
 
 - 默认发布检查覆盖 RAG 固定评估、核心 pytest、测试 Agent 契约模块 mypy 类型检查、stale job 恢复、监控 metrics/alert 模板验证、readiness、队列观测、运行结果脱敏回归、服务模式负载 smoke 单测和 `git diff --check`。
-- 测试 Agent workflow 已具备真实 LLM strict workflow eval：2026-07-15 当前默认模型 `glm-4-flash` 已覆盖当前 15 条需求到报告样本，原 11 条全量 strict eval 与新增 4 条在 `json_assertions` 新契约下分批 strict eval 均通过，所有质量门禁为 1.0，无 fallback、无 retry、无 timeout/429；模型质量结论以该真实路径为准。
+- 测试 Agent workflow 已具备真实 LLM strict workflow eval：2026-07-20 当前默认模型 `glm-4-flash` 已覆盖当前 18 条需求到报告样本，全量 strict eval 通过，所有质量门禁为 1.0，无 fallback、无 retry、无 timeout/429；`plan_generation.avg=28370.313ms`、`plan_generation.max=50612.814ms`，模型质量结论以该真实路径为准。
 - API 路由、导出和中间件测试已移除 FastAPI `TestClient` 依赖，适合沙箱环境运行。
 - 前端已接入 Vitest，覆盖配置、API client、下载、生成请求、需求解析、格式化和关键面板行为。
 - Python 依赖已收敛到统一 `requirements.txt`，版本边界由 `constraints.txt` 管理。
