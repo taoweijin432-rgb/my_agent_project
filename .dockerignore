@@ -1,8 +1,10 @@
 .git
 .github
 .venv
+.agents
 .env
 .env.*
+.playwright-mcp
 .model_cache
 .pytest_cache
 .mypy_cache
@@ -11,14 +13,25 @@ __pycache__
 *.py[cod]
 .coverage
 htmlcov
+node_modules
 dist
 build
 *.egg-info
 
 data/chroma
+data/chroma*
 data/*.db
 data/*.sqlite
 data/*.sqlite3
+data/**/*.db
+data/**/*.sqlite
+data/**/*.sqlite3
+data/llm-eval-cache
+data/llm-workflow-benchmark-history.jsonl
+data/ops-drills
 exports
 logs
 knowledge_export
+private_docs
+docs/interview-prep
+learning_agent
