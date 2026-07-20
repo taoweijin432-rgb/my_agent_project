@@ -47,6 +47,9 @@ def test_workflow_eval_fixture_passes() -> None:
         "async-final-state-workflow-001",
         "checkout-prerequisite-workflow-001",
         "payment-callback-idempotency-workflow-001",
+        "project-tenant-isolation-workflow-001",
+        "knowledge-delete-approval-workflow-001",
+        "api-key-rotation-workflow-001",
         "pytest-assertion-workflow-001",
         "sql-adapter-missing-workflow-001",
         "manual-confirmation-workflow-001",
@@ -504,11 +507,12 @@ def test_workflow_eval_appends_benchmark_history_jsonl(
     raw_record = lines[0].lower()
     assert record["schema_version"] == 1
     assert record["backend"] == "deterministic"
-    assert record["case_count"] == 15
+    expected_case_count = len(load_cases(DEFAULT_CASES_PATH))
+    assert record["case_count"] == expected_case_count
     assert record["case_ids"] == []
     assert record["case_slice"] == ""
     assert record["case_delay_seconds"] == 0
-    assert record["summary"]["timing_ms"]["total"]["count"] == 15
+    assert record["summary"]["timing_ms"]["total"]["count"] == expected_case_count
     assert "api_key" not in raw_record
     assert "zhipu_api_key" not in raw_record
 

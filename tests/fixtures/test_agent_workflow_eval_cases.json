@@ -772,6 +772,193 @@
     }
   },
   {
+    "id": "project-tenant-isolation-workflow-001",
+    "description": "从项目级权限隔离需求生成测试计划，执行 HTTP 工具后识别跨项目越权读取未被拒绝。",
+    "source": "eval/workflow/project-tenant-isolation",
+    "requirements": [
+      {
+        "id": "REQ-WORKFLOW-TENANT-001",
+        "title": "读取本项目用例 API",
+        "description": "GET /api/v1/projects/proj_a/test-cases 返回 200，JSON 字段 project_id 应为 proj_a。",
+        "keywords": [
+          "GET /api/v1/projects/proj_a/test-cases",
+          "200",
+          "project_id",
+          "proj_a"
+        ],
+        "priority": "high",
+        "source": "eval/workflow/project-tenant-isolation"
+      },
+      {
+        "id": "REQ-WORKFLOW-TENANT-002",
+        "title": "跨项目用例读取权限校验 API",
+        "description": "GET /api/v1/projects/proj_b/test-cases 返回 403；普通测试成员不能越权读取其他项目的用例，项目级权限隔离必须拒绝跨项目访问。",
+        "keywords": [
+          "GET /api/v1/projects/proj_b/test-cases",
+          "403",
+          "项目级权限",
+          "越权",
+          "拒绝"
+        ],
+        "priority": "critical",
+        "source": "eval/workflow/project-tenant-isolation"
+      }
+    ],
+    "http_responses": [
+      {
+        "method": "GET",
+        "path": "/api/v1/projects/proj_a/test-cases",
+        "status": 200,
+        "json": { "project_id": "proj_a", "cases": [{ "id": "tc_001" }] }
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/projects/proj_b/test-cases",
+        "status": 200,
+        "json": { "project_id": "proj_b", "cases": [{ "id": "tc_999" }] }
+      }
+    ],
+    "expected": {
+      "plan_tools": ["http"],
+      "plan_test_types": ["exception", "functional", "permission", "security"],
+      "generated_step_count": 2,
+      "risk_keywords": ["鉴权和权限边界需要重点验证"],
+      "report_status": "failed",
+      "tool_run_statuses": {
+        "TP-001": "passed",
+        "TP-002": "failed"
+      },
+      "covered_requirement_ids": ["REQ-WORKFLOW-TENANT-001"],
+      "uncovered_requirement_ids": ["REQ-WORKFLOW-TENANT-002"],
+      "defect_step_ids": ["TP-002"],
+      "reason_classifications": {
+        "TP-002": "permission_not_enforced"
+      },
+      "output_fragments": [
+        "JSON assertions passed: 1.",
+        "GET /api/v1/projects/proj_b/test-cases returned 200; expected [403]."
+      ]
+    }
+  },
+  {
+    "id": "knowledge-delete-approval-workflow-001",
+    "description": "从知识库删除审批需求生成测试计划，执行 HTTP 工具后识别未审批删除未被拒绝。",
+    "source": "eval/workflow/knowledge-delete-approval",
+    "requirements": [
+      {
+        "id": "REQ-WORKFLOW-KNOWLEDGE-DELETE-001",
+        "title": "知识库文档删除审批 API",
+        "description": "DELETE /api/v1/knowledge/documents/doc_001 返回 403；未审批、无权限或越权删除知识库文档必须被拒绝，并保留审计记录。",
+        "keywords": [
+          "DELETE /api/v1/knowledge/documents/doc_001",
+          "403",
+          "审批",
+          "无权限",
+          "越权",
+          "审计"
+        ],
+        "priority": "critical",
+        "source": "eval/workflow/knowledge-delete-approval"
+      }
+    ],
+    "http_responses": [
+      {
+        "method": "DELETE",
+        "path": "/api/v1/knowledge/documents/doc_001",
+        "status": 200,
+        "json": { "document_id": "doc_001", "deleted": true }
+      }
+    ],
+    "expected": {
+      "plan_tools": ["http"],
+      "plan_test_types": ["exception", "functional", "permission", "security"],
+      "generated_step_count": 1,
+      "risk_keywords": ["鉴权和权限边界需要重点验证"],
+      "report_status": "failed",
+      "tool_run_statuses": {
+        "TP-001": "failed"
+      },
+      "covered_requirement_ids": [],
+      "uncovered_requirement_ids": ["REQ-WORKFLOW-KNOWLEDGE-DELETE-001"],
+      "defect_step_ids": ["TP-001"],
+      "reason_classifications": {
+        "TP-001": "permission_not_enforced"
+      },
+      "output_fragments": [
+        "DELETE /api/v1/knowledge/documents/doc_001 returned 200; expected [403]."
+      ]
+    }
+  },
+  {
+    "id": "api-key-rotation-workflow-001",
+    "description": "从 API key 轮换需求生成测试计划，执行 HTTP 工具后识别下一把密钥在轮换窗口认证失败。",
+    "source": "eval/workflow/api-key-rotation",
+    "requirements": [
+      {
+        "id": "REQ-WORKFLOW-APIKEY-001",
+        "title": "当前 API key 指标访问 API",
+        "description": "GET /api/v1/operations/metrics/current-key 返回 200，JSON 字段 key_status 应为 current；当前 APP_API_KEY 应可访问内部指标。",
+        "keywords": [
+          "GET /api/v1/operations/metrics/current-key",
+          "200",
+          "APP_API_KEY",
+          "key_status"
+        ],
+        "priority": "high",
+        "source": "eval/workflow/api-key-rotation"
+      },
+      {
+        "id": "REQ-WORKFLOW-APIKEY-002",
+        "title": "下一把 API key 轮换认证 API",
+        "description": "GET /api/v1/operations/metrics/next-key 返回 200；APP_API_KEYS 中下一把密钥在轮换窗口应通过认证，认证失败必须暴露错误。",
+        "keywords": [
+          "GET /api/v1/operations/metrics/next-key",
+          "200",
+          "APP_API_KEYS",
+          "密钥",
+          "认证"
+        ],
+        "priority": "critical",
+        "source": "eval/workflow/api-key-rotation"
+      }
+    ],
+    "http_responses": [
+      {
+        "method": "GET",
+        "path": "/api/v1/operations/metrics/current-key",
+        "status": 200,
+        "json": { "key_status": "current", "ready": true }
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/operations/metrics/next-key",
+        "status": 401,
+        "json": { "detail": "Invalid API key." }
+      }
+    ],
+    "expected": {
+      "plan_tools": ["http"],
+      "plan_test_types": ["exception", "functional", "permission", "security"],
+      "generated_step_count": 2,
+      "risk_keywords": ["鉴权和权限边界需要重点验证"],
+      "report_status": "failed",
+      "tool_run_statuses": {
+        "TP-001": "passed",
+        "TP-002": "failed"
+      },
+      "covered_requirement_ids": ["REQ-WORKFLOW-APIKEY-001"],
+      "uncovered_requirement_ids": ["REQ-WORKFLOW-APIKEY-002"],
+      "defect_step_ids": ["TP-002"],
+      "reason_classifications": {
+        "TP-002": "auth_failure"
+      },
+      "output_fragments": [
+        "JSON assertions passed: 1.",
+        "GET /api/v1/operations/metrics/next-key returned 401; expected [200]."
+      ]
+    }
+  },
+  {
     "id": "sql-adapter-missing-workflow-001",
     "description": "从数据库校验需求生成测试计划，未注册 SQL adapter 时报告应标记阻塞而不是失败。",
     "source": "eval/workflow/sql-adapter-missing",
