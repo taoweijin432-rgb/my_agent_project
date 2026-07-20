@@ -31,6 +31,10 @@ def _args(**overrides):
         "monitoring_rollout_evidence_path": (
             "data/ops-drills/monitoring-rollout-evidence.json"
         ),
+        "include_deployment_security_check": False,
+        "deployment_security_evidence_path": (
+            "data/ops-drills/deployment-security-evidence.json"
+        ),
     }
     values.update(overrides)
     return Namespace(**values)
@@ -69,6 +73,7 @@ def test_release_checks_include_rag_pytest_and_diff_by_default() -> None:
     assert "tests/fixtures/refund_rag_eval_cases.json" in commands[3].command
     assert "tests/test_generator.py" in commands[4].command
     assert "tests/test_generate_api.py" in commands[4].command
+    assert "tests/test_deployment_security_check.py" in commands[4].command
     assert "tests/test_middleware.py" in commands[4].command
     assert "tests/test_queue_alerts.py" in commands[4].command
     assert "tests/test_release_checks.py" in commands[4].command
@@ -445,6 +450,33 @@ def test_release_checks_can_include_monitoring_rollout_check() -> None:
     assert "scripts/check_monitoring_rollout.py" in commands[0].command
     assert "--evidence-path" in commands[0].command
     assert "data/ops-drills/prod-monitoring.json" in commands[0].command
+
+
+def test_release_checks_can_include_deployment_security_check() -> None:
+    commands = build_default_commands(
+        _args(
+            skip_rag_eval=True,
+            skip_pytest=True,
+            skip_test_plan_eval=True,
+            skip_test_report_eval=True,
+            skip_test_execution_eval=True,
+            skip_test_agent_workflow_eval=True,
+            skip_type_check=True,
+            skip_recovery_smoke=True,
+            skip_readiness_check=True,
+            skip_monitoring_check=True,
+            skip_queue_check=True,
+            skip_secret_scan=True,
+            skip_diff_check=True,
+            include_deployment_security_check=True,
+            deployment_security_evidence_path="data/ops-drills/prod-security.json",
+        )
+    )
+
+    assert [command.name for command in commands] == ["deployment-security-check"]
+    assert "scripts/check_deployment_security.py" in commands[0].command
+    assert "--evidence-path" in commands[0].command
+    assert "data/ops-drills/prod-security.json" in commands[0].command
 
 
 def test_release_checks_can_skip_monitoring_metrics_check() -> None:

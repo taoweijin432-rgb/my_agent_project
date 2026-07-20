@@ -73,6 +73,24 @@ CORS_ALLOW_CREDENTIALS=false
 
 当 `APP_ENV=production` 时，服务会在启动阶段强制校验生产配置。以下情况会直接拒绝启动：缺少真实 `APP_API_KEY`/`APP_API_KEYS` 或 `ZHIPU_API_KEY`、服务 key 使用占位值或少于 16 个字符、CORS 使用 `*` 或本地地址、CORS 非 HTTPS、`EMBEDDING_PROVIDER=hash`、`EMBEDDING_LOCAL_FILES_ONLY=false`、未配置 `TEST_TOOL_HTTP_BASE_URL_ALLOWLIST`、关闭限流、关闭请求日志、`REQUEST_LOG_FORMAT` 不是 `text` 或 `json`、关闭 Agent Reviewer、关闭生成历史、历史库使用内存路径。
 
+生产启动校验只覆盖应用自身能看到的配置，不等同于公网安全完成。对外暴露前，必须由部署侧提供网关/TLS、身份系统或平台 RBAC、集中审计日志、密钥托管和通知/应急联系人。建议先基于模板生成本地 evidence，真实文件保存在已 ignore 的 `data/ops-drills/`：
+
+```bash
+mkdir -p data/ops-drills
+cp docs/security/deployment-security-evidence.example.json \
+  data/ops-drills/deployment-security-evidence.json
+```
+
+替换真实环境字段后执行：
+
+```bash
+./.venv/bin/python scripts/check_deployment_security.py \
+  --evidence-path data/ops-drills/deployment-security-evidence.json \
+  --json
+```
+
+该检查要求 HTTPS 入口、HSTS、网关限流、请求大小限制、网关访问日志、WAF 或 IP allowlist、API key 鉴权、双 key 轮换演练、外部身份系统、RBAC/项目隔离、集中日志、至少 90 天审计留存、敏感数据脱敏、密钥管理系统、HTTPS CORS、测试工具最小权限、生产启动校验、release checks、secret scan 和 readiness 检查都已完成。模板包含 `example.internal` 占位 URL，直接按生产门禁会失败；只检查模板格式时增加 `--allow-placeholder-values`。
+
 ## 2. 本地运行
 
 Linux 本机推荐使用 Docker Redis + 本机 Python API/worker，完整步骤见 [本机运行基线](local-run.md)。关键区别是：本机 Python 进程使用 `REDIS_URL=redis://127.0.0.1:6379/0`，Docker Compose 容器内部使用 `REDIS_URL=redis://redis:6379/0`。

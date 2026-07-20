@@ -54,6 +54,7 @@ DEFAULT_PYTEST_TARGETS = [
     "tests/test_auth_dependency.py",
     "tests/test_config.py",
     "tests/test_coverage_evaluation.py",
+    "tests/test_deployment_security_check.py",
     "tests/test_deployment_templates.py",
     "tests/test_export.py",
     "tests/test_generate_api.py",
@@ -293,6 +294,16 @@ def parse_args() -> argparse.Namespace:
         "--monitoring-rollout-evidence-path",
         default="data/ops-drills/monitoring-rollout-evidence.json",
         help="Evidence JSON path for --include-monitoring-rollout-check.",
+    )
+    parser.add_argument(
+        "--include-deployment-security-check",
+        action="store_true",
+        help="Run optional public/pre-production deployment security evidence check.",
+    )
+    parser.add_argument(
+        "--deployment-security-evidence-path",
+        default="data/ops-drills/deployment-security-evidence.json",
+        help="Evidence JSON path for --include-deployment-security-check.",
     )
     parser.add_argument("--llm-port", type=int, default=8028)
     parser.add_argument("--llm-timeout", type=int, default=240)
@@ -703,6 +714,19 @@ def build_default_commands(args: argparse.Namespace) -> list[CheckCommand]:
                     "scripts/check_monitoring_rollout.py",
                     "--evidence-path",
                     args.monitoring_rollout_evidence_path,
+                    "--json",
+                ],
+            )
+        )
+    if args.include_deployment_security_check:
+        commands.append(
+            CheckCommand(
+                name="deployment-security-check",
+                command=[
+                    args.python,
+                    "scripts/check_deployment_security.py",
+                    "--evidence-path",
+                    args.deployment_security_evidence_path,
                     "--json",
                 ],
             )

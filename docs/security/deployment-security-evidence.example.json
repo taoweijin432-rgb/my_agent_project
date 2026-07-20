@@ -1,0 +1,57 @@
+{
+  "environment": "staging",
+  "observed_at": "2026-07-20T00:00:00Z",
+  "ingress": {
+    "public_entrypoint_url": "https://ai-testcase.example.internal",
+    "tls_enforced": true,
+    "hsts_enabled": true,
+    "gateway_enabled": true,
+    "gateway_rate_limit_enabled": true,
+    "gateway_request_size_limit_enabled": true,
+    "gateway_access_logs_enabled": true,
+    "waf_or_ip_allowlist_enabled": true
+  },
+  "authentication": {
+    "api_key_required": true,
+    "dual_api_key_rotation_tested": true,
+    "no_anonymous_business_endpoints": true,
+    "external_identity_provider_enabled": true
+  },
+  "authorization": {
+    "rbac_enforced_at_gateway_or_platform": true,
+    "project_or_tenant_isolation_defined": true,
+    "admin_operations_restricted": true,
+    "knowledge_base_access_scoped": true
+  },
+  "audit": {
+    "request_logs_enabled": true,
+    "centralized_log_sink_configured": true,
+    "audit_retention_days": 90,
+    "request_id_propagation_verified": true,
+    "sensitive_data_redaction_verified": true
+  },
+  "secrets": {
+    "secret_manager_enabled": true,
+    "env_files_excluded_from_git": true,
+    "real_secrets_committed": false,
+    "rotation_owner": "platform-team"
+  },
+  "cors": {
+    "allowed_origins": [
+      "https://qa.example.internal"
+    ],
+    "wildcard_allowed": false,
+    "credentials_allowed": false
+  },
+  "tools": {
+    "http_base_url_allowlist_configured": true,
+    "pytest_adapter_disabled_or_scoped": true,
+    "allowed_headers_minimal": true
+  },
+  "validation": {
+    "production_startup_validation_passed": true,
+    "release_checks_passed": true,
+    "secret_scan_passed": true,
+    "readiness_check_passed": true
+  }
+}

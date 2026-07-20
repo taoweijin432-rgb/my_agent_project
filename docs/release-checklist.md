@@ -67,6 +67,16 @@ git diff --check
 - 发布前 secret scan，扫描已跟踪和待提交文件中的高置信度 API key、token、私钥、JWT 和环境变量式密钥；需要临时跳过时使用 `--skip-secret-scan`。
 - `git diff --check`。
 
+可选公网/预发部署安全 evidence 门禁：
+
+```bash
+./.venv/bin/python scripts/run_release_checks.py \
+  --include-deployment-security-check \
+  --deployment-security-evidence-path data/ops-drills/deployment-security-evidence.json
+```
+
+该检查会调用 `scripts/check_deployment_security.py`，验证部署侧 evidence 已覆盖 HTTPS/TLS、HSTS、API 网关限流和请求大小限制、访问日志、WAF 或 IP allowlist、API key 轮换、外部身份系统、RBAC/项目隔离、集中审计日志、至少 90 天留存、敏感数据脱敏、密钥托管、HTTPS CORS、测试工具最小权限、生产启动校验、release checks、secret scan 和 readiness。`data/ops-drills/` 已被 `.gitignore` 忽略，不要把真实环境 URL、身份系统配置、审计系统地址或演练记录提交到仓库；格式参考见 `docs/security/deployment-security-evidence.example.json`。
+
 可选真实模型验证：
 
 ```bash

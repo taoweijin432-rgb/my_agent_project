@@ -144,6 +144,26 @@ def test_monitoring_compose_override_defines_prometheus_stack() -> None:
     )
 
 
+def test_deployment_security_evidence_gate_is_documented() -> None:
+    deployment = (PROJECT_ROOT / "docs" / "deployment.md").read_text(encoding="utf-8")
+    release_checklist = (PROJECT_ROOT / "docs" / "release-checklist.md").read_text(
+        encoding="utf-8"
+    )
+    template = (
+        PROJECT_ROOT / "docs" / "security" / "deployment-security-evidence.example.json"
+    ).read_text(encoding="utf-8")
+
+    assert "scripts/check_deployment_security.py" in deployment
+    assert "deployment-security-evidence.example.json" in deployment
+    assert "data/ops-drills/deployment-security-evidence.json" in deployment
+    assert "--include-deployment-security-check" in release_checklist
+    assert "scripts/check_deployment_security.py" in release_checklist
+    assert '"tls_enforced": true' in template
+    assert '"rbac_enforced_at_gateway_or_platform": true' in template
+    assert '"secret_manager_enabled": true' in template
+    assert '"real_secrets_committed": false' in template
+
+
 def test_dockerfile_has_healthcheck() -> None:
     content = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
 
