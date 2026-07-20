@@ -186,3 +186,70 @@ def test_test_agent_workflow_failure_records_failed_stage_timing(monkeypatch) ->
             "duration_seconds": snapshot["stages"][0]["duration_seconds"],
         }
     ]
+
+
+def test_test_agent_workflow_failure_records_plan_validation_failure(monkeypatch) -> None:
+    class CoverageGapLLM:
+        settings = Settings(zhipu_chat_model="fake-model")
+
+        def generate_json(self, _messages):
+            return {
+                "title": "退款测试计划",
+                "steps": [
+                    {
+                        "title": "验证创建退款",
+                        "requirement_ids": ["REFUND-001"],
+                        "tool": "http",
+                        "tool_args": {
+                            "method": "POST",
+                            "path": "/api/v1/refunds",
+                            "expected_status": 201,
+                        },
+                    }
+                ],
+            }
+
+    monkeypatch.setattr(
+        workflow_module,
+        "_build_generator",
+        lambda _request, _settings: LLMTestPlanGenerator(
+            CoverageGapLLM(),
+            allow_fallback=False,
+        ),
+    )
+
+    request = WorkflowRequest(
+        generation_request=PlanGenerationRequest(
+            description="退款接口需要覆盖创建和审计。",
+            requirements=[
+                RequirementPoint(
+                    id="REFUND-001",
+                    title="创建退款 API",
+                    description="POST /api/v1/refunds 创建退款。",
+                    keywords=["POST /api/v1/refunds", "201"],
+                ),
+                RequirementPoint(
+                    id="REFUND-002",
+                    title="退款审计查询 API",
+                    description="GET /api/v1/refunds/rf_001/audit 返回 200。",
+                    keywords=["GET /api/v1/refunds/rf_001/audit", "200"],
+                ),
+            ],
+            use_llm=True,
+            allow_llm_fallback=False,
+        ),
+        http_base_url="http://testserver",
+    )
+
+    with pytest.raises(TestAgentWorkflowExecutionError) as raised:
+        execute_test_agent_workflow_request(request, Settings())
+
+    error = raised.value
+    assert error.stage == WorkflowStage.plan_generation
+    assert error.error_code == "plan_generation_failed"
+    assert "missing requirement coverage" in str(error.cause)
+
+    snapshot = get_stage_metrics_snapshot()
+    assert snapshot["total_count"] == 1
+    assert snapshot["stages"][0]["stage"] == "plan_generation"
+    assert snapshot["stages"][0]["status"] == "failed"

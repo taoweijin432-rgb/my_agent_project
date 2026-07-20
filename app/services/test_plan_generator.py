@@ -9,6 +9,7 @@ from app.core.config import Settings
 from app.models.test_case import KnowledgeChunk, RequirementPoint, TestCaseType
 from app.models.test_plan import (
     HTTPToolArgs,
+    PytestToolArgs,
     TestPlan,
     TestPlanGenerationRequest,
     TestPlanPriority,
@@ -21,6 +22,8 @@ from app.services.prompt import build_test_plan_messages
 
 
 class TestPlanOutputValidationError(RuntimeError):
+    __test__ = False
+
     pass
 
 
@@ -81,7 +84,9 @@ class LLMTestPlanGenerator:
         self.last_used_fallback = False
         try:
             payload = self.llm.generate_json(build_test_plan_messages(request))
-            return _plan_from_llm_payload(payload, request)
+            plan = _plan_from_llm_payload(payload, request)
+            _validate_generated_plan(plan, request)
+            return plan
         except (LLMError, TestPlanOutputValidationError):
             if self.allow_fallback:
                 self.last_used_fallback = True
@@ -357,6 +362,75 @@ def _plan_from_llm_payload(
         raise TestPlanOutputValidationError(
             f"LLM test plan output does not match schema: {exc}"
         ) from exc
+
+
+def _validate_generated_plan(
+    plan: TestPlan,
+    request: TestPlanGenerationRequest,
+) -> None:
+    if not plan.steps:
+        raise TestPlanOutputValidationError("LLM test plan validation failed: no steps.")
+    _validate_unique_step_ids(plan)
+    _validate_requirement_coverage(plan, request)
+    _validate_tool_args_contract(plan)
+
+
+def _validate_unique_step_ids(plan: TestPlan) -> None:
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for step in plan.steps:
+        if step.id in seen:
+            duplicates.append(step.id)
+        seen.add(step.id)
+    if duplicates:
+        duplicate_text = ", ".join(_dedupe_strings(duplicates))
+        raise TestPlanOutputValidationError(
+            f"LLM test plan validation failed: duplicate step ids: {duplicate_text}."
+        )
+
+
+def _validate_requirement_coverage(
+    plan: TestPlan,
+    request: TestPlanGenerationRequest,
+) -> None:
+    expected_requirement_ids = [
+        requirement.id
+        for requirement in request.requirements[: request.max_steps]
+        if requirement.id
+    ]
+    if not expected_requirement_ids:
+        return
+
+    covered_requirement_ids = {
+        requirement_id
+        for step in plan.steps
+        for requirement_id in step.requirement_ids
+    }
+    missing_requirement_ids = [
+        requirement_id
+        for requirement_id in expected_requirement_ids
+        if requirement_id not in covered_requirement_ids
+    ]
+    if missing_requirement_ids:
+        missing_text = ", ".join(missing_requirement_ids)
+        raise TestPlanOutputValidationError(
+            "LLM test plan validation failed: "
+            f"missing requirement coverage for {missing_text}."
+        )
+
+
+def _validate_tool_args_contract(plan: TestPlan) -> None:
+    for step in plan.steps:
+        try:
+            if step.tool == TestToolType.http:
+                HTTPToolArgs.model_validate(step.tool_args)
+            elif step.tool == TestToolType.pytest:
+                PytestToolArgs.model_validate(step.tool_args)
+        except (ValidationError, ValueError) as exc:
+            raise TestPlanOutputValidationError(
+                "LLM test plan validation failed: "
+                f"step {step.id} has invalid {step.tool.value} tool_args: {exc}"
+            ) from exc
 
 
 def _llm_scope_from_payload(

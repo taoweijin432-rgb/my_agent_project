@@ -1,12 +1,15 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from app.models.test_case import KnowledgeChunk, RequirementPoint
 from app.models.test_case import TestCaseType as CaseType
 from app.models.test_plan import TestPlanGenerationRequest as PlanRequest
 from app.models.test_plan import TestToolType as ToolType
 from app.services.llm import LLMError
 from app.services.test_plan_generator import LLMTestPlanGenerator, generate_test_plan
+from app.services.test_plan_generator import TestPlanOutputValidationError
 
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
@@ -458,6 +461,96 @@ def test_llm_test_plan_generator_falls_back_when_llm_fails() -> None:
 
     assert plan.steps[0].id == "TP-001"
     assert plan.steps[0].tool == ToolType.playwright
+
+
+def test_llm_test_plan_generator_validates_requirement_coverage() -> None:
+    generator = LLMTestPlanGenerator(
+        FakeLLM(
+            {
+                "title": "退款测试计划",
+                "steps": [
+                    {
+                        "title": "验证创建退款",
+                        "requirement_ids": ["REFUND-001"],
+                        "tool": "http",
+                        "tool_args": {
+                            "method": "POST",
+                            "path": "/api/v1/refunds",
+                            "expected_status": 201,
+                        },
+                    }
+                ],
+            }
+        ),
+        allow_fallback=False,
+    )
+
+    with pytest.raises(TestPlanOutputValidationError, match="missing requirement coverage"):
+        generator.generate(
+            PlanRequest(
+                description="退款接口需要覆盖创建和审计。",
+                requirements=[
+                    RequirementPoint(
+                        id="REFUND-001",
+                        title="创建退款 API",
+                        description="POST /api/v1/refunds 创建退款。",
+                        keywords=["POST /api/v1/refunds", "201"],
+                    ),
+                    RequirementPoint(
+                        id="REFUND-002",
+                        title="退款审计查询 API",
+                        description="GET /api/v1/refunds/rf_001/audit 返回 200。",
+                        keywords=["GET /api/v1/refunds/rf_001/audit", "200"],
+                    ),
+                ],
+            )
+        )
+
+
+def test_llm_test_plan_generator_falls_back_on_validation_failure() -> None:
+    generator = LLMTestPlanGenerator(
+        FakeLLM(
+            {
+                "title": "退款测试计划",
+                "steps": [
+                    {
+                        "title": "验证创建退款",
+                        "requirement_ids": ["REFUND-001"],
+                        "tool": "http",
+                        "tool_args": {
+                            "method": "POST",
+                            "path": "/api/v1/refunds",
+                            "expected_status": 201,
+                        },
+                    }
+                ],
+            }
+        ),
+        allow_fallback=True,
+    )
+
+    plan = generator.generate(
+        PlanRequest(
+            description="退款接口需要覆盖创建和审计。",
+            requirements=[
+                RequirementPoint(
+                    id="REFUND-001",
+                    title="创建退款 API",
+                    description="POST /api/v1/refunds 创建退款。",
+                    keywords=["POST /api/v1/refunds", "201"],
+                ),
+                RequirementPoint(
+                    id="REFUND-002",
+                    title="退款审计查询 API",
+                    description="GET /api/v1/refunds/rf_001/audit 返回 200。",
+                    keywords=["GET /api/v1/refunds/rf_001/audit", "200"],
+                ),
+            ],
+        )
+    )
+
+    assert generator.last_used_fallback is True
+    assert [step.id for step in plan.steps] == ["TP-001", "TP-002"]
 
 
 def test_test_plan_eval_fixture_matches_rule_based_planner() -> None:
