@@ -20,6 +20,21 @@ AI 测试用例生成助手是一个面向测试工程场景的 RAG Workflow Age
 - [前端工作台](frontend/README.md)
 - [知识库目录](knowledge/README.md)
 
+## 项目亮点
+
+- 需求到报告闭环：支持从结构化需求生成测试计划，执行 HTTP/pytest/manual/sql 等测试步骤，并输出覆盖率、缺陷、原因分类、修复建议和 evidence。
+- RAG 与质量门控：结合 Chroma 知识库、Reviewer、Schema 校验、覆盖矩阵和报告事实一致性检查，降低模型输出泛化和漏测风险。
+- 真实模型验证：测试 Agent workflow 已覆盖 18 条需求到报告样本，真实 LLM strict eval 全量通过，质量结论以真实 LLM 路径为准，离线 deterministic eval 只作为快速回归保护。
+- 工程化交付：具备 FastAPI、Redis/RQ、SQLite/MySQL、Docker Compose、React/Vite 前端、Prometheus 指标、发布检查、secret scan 和可选前端 release check。
+
+## 推荐演示路径
+
+1. 导入示例知识库：`./.venv/bin/python scripts/ingest_documents.py knowledge --recursive --reset`
+2. 启动后端和前端工作台，进入测试计划页面。
+3. 输入一组带 HTTP 状态码、权限边界或 JSON 字段断言的需求，生成测试计划。
+4. 提交完整 workflow job，查看计划生成、工具执行、报告汇总、失败原因分类和修复建议。
+5. 运行发布检查或真实 LLM strict eval，验证这条链路不是只靠页面演示，而是可重复回归。
+
 ## 快速启动
 
 以下命令默认在项目根目录执行。
