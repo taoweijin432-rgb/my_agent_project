@@ -67,6 +67,7 @@ DEFAULT_PYTEST_TARGETS = [
     "tests/test_middleware_logging.py",
     "tests/test_monitoring_docs.py",
     "tests/test_monitoring_metrics_check.py",
+    "tests/test_monitoring_stack_smoke.py",
     "tests/test_prompt.py",
     "tests/test_pytest_export.py",
     "tests/test_quality.py",
@@ -276,6 +277,11 @@ def parse_args() -> argparse.Namespace:
         "--include-queue-alert-check",
         action="store_true",
         help="Run optional queue metrics/alert threshold check.",
+    )
+    parser.add_argument(
+        "--include-monitoring-stack-smoke",
+        action="store_true",
+        help="Run optional local Prometheus/Alertmanager stack smoke.",
     )
     parser.add_argument("--llm-port", type=int, default=8028)
     parser.add_argument("--llm-timeout", type=int, default=240)
@@ -662,6 +668,17 @@ def build_default_commands(args: argparse.Namespace) -> list[CheckCommand]:
                 command=[
                     args.python,
                     "scripts/check_queue_alerts.py",
+                    "--json",
+                ],
+            )
+        )
+    if args.include_monitoring_stack_smoke:
+        commands.append(
+            CheckCommand(
+                name="monitoring-stack-smoke",
+                command=[
+                    args.python,
+                    "scripts/smoke_monitoring_stack.py",
                     "--json",
                 ],
             )

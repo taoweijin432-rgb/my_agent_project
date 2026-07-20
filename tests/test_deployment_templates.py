@@ -111,6 +111,39 @@ def test_mysql_rq_compose_override_aligns_api_and_worker() -> None:
     assert "generation-compose-smoke" in content
 
 
+def test_monitoring_compose_override_defines_prometheus_stack() -> None:
+    content = (PROJECT_ROOT / "docker-compose.monitoring.yml").read_text(
+        encoding="utf-8"
+    )
+    prometheus_config = (
+        PROJECT_ROOT / "docs" / "monitoring" / "prometheus-scrape-example.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "ai-testcase-metrics-proxy:" in content
+    assert "scripts/run_metrics_proxy.py" in content
+    assert "http://api:8000/api/v1/operations/metrics/prometheus" in content
+    assert "prom/prometheus:v2.55.1" in content
+    assert "prom/alertmanager:v0.27.0" in content
+    assert "prometheus-scrape-example.yml:/etc/prometheus/prometheus.yml:ro" in content
+    assert (
+        "prometheus-alert-rules.yml:/etc/prometheus/prometheus-alert-rules.yml:ro"
+        in content
+    )
+    assert (
+        "alertmanager-route-example.yml:/etc/alertmanager/alertmanager.yml:ro"
+        in content
+    )
+    assert (
+        "global:\n"
+        "  scrape_interval: 30s\n"
+        "  evaluation_interval: 30s\n"
+        "  external_labels:\n"
+        "    service: ai-testcase-generator\n"
+        "    environment: staging"
+        in prometheus_config
+    )
+
+
 def test_dockerfile_has_healthcheck() -> None:
     content = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
 

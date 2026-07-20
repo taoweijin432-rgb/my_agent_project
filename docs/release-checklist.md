@@ -321,6 +321,15 @@ workflow 实机演练通过条件：所有 workflow job 进入 `succeeded`，报
 
 该检查会调用 `scripts/check_queue_alerts.py`，聚合生成队列和测试计划执行队列的 `metrics` 与 `alerts`。默认把 RQ failed registry 超过 0 视为 error，并检查 worker heartbeat；生产环境可直接运行脚本并显式配置 `--require-worker`、`--max-active-jobs`、`--max-rq-queued`、`--max-rq-started` 和 `--fail-on-warning`。
 
+可选 monitoring stack 实机验证：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.mysql-rq.yml -f docker-compose.monitoring.yml --profile mysql up -d
+./.venv/bin/python scripts/run_release_checks.py --include-monitoring-stack-smoke
+```
+
+该检查会访问本地 Prometheus 和 Alertmanager API，验证 metrics proxy target、告警规则和关键指标。默认发布检查只做离线 metrics/alert 模板验证，不默认启动 Docker monitoring stack。
+
 容量观察或阈值校准时，使用采样脚本保存多次快照和汇总：
 
 ```bash

@@ -26,6 +26,7 @@ def _args(**overrides):
         "include_rq_mysql_worker_stability_smoke": False,
         "include_test_agent_workflow_rq_mysql_smoke": False,
         "include_queue_alert_check": False,
+        "include_monitoring_stack_smoke": False,
     }
     values.update(overrides)
     return Namespace(**values)
@@ -77,6 +78,7 @@ def test_release_checks_include_rag_pytest_and_diff_by_default() -> None:
     assert "tests/test_test_agent_workflow_queue_observability.py" in commands[4].command
     assert "tests/test_test_agent_workflow_store.py" in commands[4].command
     assert "tests/test_monitoring_metrics_check.py" in commands[4].command
+    assert "tests/test_monitoring_stack_smoke.py" in commands[4].command
     assert "app/models/test_plan.py" in commands[5].command
     assert "app/services/tool_adapters.py" in commands[5].command
     assert "app/services/tool_artifacts.py" in commands[5].command
@@ -387,6 +389,30 @@ def test_release_checks_can_include_queue_alert_check() -> None:
 
     assert [command.name for command in commands] == ["queue-alert-check"]
     assert "scripts/check_queue_alerts.py" in commands[0].command
+
+
+def test_release_checks_can_include_monitoring_stack_smoke() -> None:
+    commands = build_default_commands(
+        _args(
+            skip_rag_eval=True,
+            skip_pytest=True,
+            skip_test_plan_eval=True,
+            skip_test_report_eval=True,
+            skip_test_execution_eval=True,
+            skip_test_agent_workflow_eval=True,
+            skip_type_check=True,
+            skip_recovery_smoke=True,
+            skip_readiness_check=True,
+            skip_monitoring_check=True,
+            skip_queue_check=True,
+            skip_secret_scan=True,
+            skip_diff_check=True,
+            include_monitoring_stack_smoke=True,
+        )
+    )
+
+    assert [command.name for command in commands] == ["monitoring-stack-smoke"]
+    assert "scripts/smoke_monitoring_stack.py" in commands[0].command
 
 
 def test_release_checks_can_skip_monitoring_metrics_check() -> None:

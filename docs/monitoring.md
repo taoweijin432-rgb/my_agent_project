@@ -94,6 +94,15 @@ python scripts/check_monitoring_metrics.py --json
 
 该脚本不访问 Redis、数据库或 Prometheus；它会构造一份 synthetic metrics snapshot，调用当前 `format_prometheus_metrics()` 生成 Prometheus 文本，并检查关键 series 与 `docs/monitoring/prometheus-alert-rules.yml` 中的核心告警名/表达式是否仍然存在。`scripts/run_release_checks.py` 默认会执行该检查；需要临时跳过时使用 `--skip-monitoring-check`。
 
+如果要验证 Prometheus/Alertmanager 实机链路，可以启动 monitoring override。它会新增一个内部 `ai-testcase-metrics-proxy`，由 proxy 注入 `X-API-Key` 后转发 API 的 Prometheus metrics，Prometheus 只抓取 proxy 的 `/metrics`：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.mysql-rq.yml -f docker-compose.monitoring.yml --profile mysql up -d
+python scripts/smoke_monitoring_stack.py --json
+```
+
+该 smoke 会检查 Prometheus readiness、Alertmanager readiness、Prometheus target 是否 `up`、告警规则是否加载，以及关键 `ai_testcase_*` 指标是否已经被抓取。它验证的是本地受控 Compose 链路，不代表生产环境已经完成集中日志、正式通知路由或完整业务周期阈值校准。
+
 ## 队列告警演练记录
 
 Redis/RQ 或 MySQL 演练后，建议把队列告警快照保存为证据文件，便于复盘和阈值校准：
