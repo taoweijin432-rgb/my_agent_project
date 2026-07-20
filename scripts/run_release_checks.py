@@ -67,6 +67,7 @@ DEFAULT_PYTEST_TARGETS = [
     "tests/test_middleware_logging.py",
     "tests/test_monitoring_docs.py",
     "tests/test_monitoring_metrics_check.py",
+    "tests/test_monitoring_rollout_check.py",
     "tests/test_monitoring_stack_smoke.py",
     "tests/test_prompt.py",
     "tests/test_pytest_export.py",
@@ -282,6 +283,16 @@ def parse_args() -> argparse.Namespace:
         "--include-monitoring-stack-smoke",
         action="store_true",
         help="Run optional local Prometheus/Alertmanager stack smoke.",
+    )
+    parser.add_argument(
+        "--include-monitoring-rollout-check",
+        action="store_true",
+        help="Run optional production/pre-production monitoring rollout evidence check.",
+    )
+    parser.add_argument(
+        "--monitoring-rollout-evidence-path",
+        default="data/ops-drills/monitoring-rollout-evidence.json",
+        help="Evidence JSON path for --include-monitoring-rollout-check.",
     )
     parser.add_argument("--llm-port", type=int, default=8028)
     parser.add_argument("--llm-timeout", type=int, default=240)
@@ -679,6 +690,19 @@ def build_default_commands(args: argparse.Namespace) -> list[CheckCommand]:
                 command=[
                     args.python,
                     "scripts/smoke_monitoring_stack.py",
+                    "--json",
+                ],
+            )
+        )
+    if args.include_monitoring_rollout_check:
+        commands.append(
+            CheckCommand(
+                name="monitoring-rollout-check",
+                command=[
+                    args.python,
+                    "scripts/check_monitoring_rollout.py",
+                    "--evidence-path",
+                    args.monitoring_rollout_evidence_path,
                     "--json",
                 ],
             )

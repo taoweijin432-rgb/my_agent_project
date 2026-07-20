@@ -91,3 +91,26 @@ def test_monitoring_guide_links_alert_rules_template() -> None:
     assert "ai_testcase_http_requests_total" in content
     assert "promtool check config" in content
     assert "promtool check rules" in content
+    assert "scripts/check_monitoring_rollout.py" in content
+    assert "monitoring-rollout-evidence.example.json" in content
+    assert "data/ops-drills/" in content
+
+
+def test_monitoring_rollout_evidence_template_mentions_required_sections() -> None:
+    template_path = (
+        PROJECT_ROOT
+        / "docs"
+        / "monitoring"
+        / "monitoring-rollout-evidence.example.json"
+    )
+
+    content = template_path.read_text(encoding="utf-8")
+
+    assert '"environment": "staging"' in content
+    assert '"prometheus"' in content
+    assert '"alertmanager"' in content
+    assert '"security"' in content
+    assert '"calibration"' in content
+    assert '"critical_notification_delivered": true' in content
+    assert '"metrics_endpoint_requires_api_key": true' in content
+    assert '"public_metrics_endpoint_exposed": false' in content

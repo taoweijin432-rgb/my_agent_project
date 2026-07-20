@@ -1,0 +1,44 @@
+{
+  "environment": "staging",
+  "observed_at": "2026-07-20T00:00:00Z",
+  "prometheus": {
+    "url": "https://prometheus.example.internal",
+    "ready": true,
+    "scrape_job": "ai-testcase-generator",
+    "target_health": "up",
+    "required_alerts_loaded": true,
+    "required_metrics_present": true
+  },
+  "alertmanager": {
+    "url": "https://alertmanager.example.internal",
+    "ready": true,
+    "receivers": [
+      "ai-testcase-generator-default",
+      "ai-testcase-generator-critical",
+      "ai-testcase-generator-warning"
+    ],
+    "critical_notification_delivered": true,
+    "warning_notification_delivered": true,
+    "resolved_notification_delivered": true
+  },
+  "security": {
+    "metrics_endpoint_requires_api_key": true,
+    "prometheus_scrapes_metrics_proxy": true,
+    "metrics_proxy_injects_api_key": true,
+    "public_metrics_endpoint_exposed": false,
+    "secret_values_committed": false
+  },
+  "calibration": {
+    "observation_window_hours": 24,
+    "queue_thresholds_reviewed": true,
+    "llm_thresholds_reviewed": true,
+    "http_5xx_threshold_reviewed": true,
+    "no_unresolved_critical_alerts": true
+  },
+  "evidence": {
+    "monitoring_stack_smoke_ok": true,
+    "queue_alert_sample_summary_path": "data/ops-drills/queue-alert-summary-YYYYMMDD-env.json",
+    "dashboard_url": "https://grafana.example.internal/d/ai-testcase-generator",
+    "notification_drill_reference": "OPS-123"
+  }
+}

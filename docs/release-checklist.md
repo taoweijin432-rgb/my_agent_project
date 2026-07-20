@@ -330,6 +330,16 @@ docker compose -f docker-compose.yml -f docker-compose.mysql-rq.yml -f docker-co
 
 该检查会访问本地 Prometheus 和 Alertmanager API，验证 metrics proxy target、告警规则和关键指标。默认发布检查只做离线 metrics/alert 模板验证，不默认启动 Docker monitoring stack。
 
+可选生产/预发 monitoring rollout evidence 门禁：
+
+```bash
+./.venv/bin/python scripts/run_release_checks.py \
+  --include-monitoring-rollout-check \
+  --monitoring-rollout-evidence-path data/ops-drills/monitoring-rollout-evidence.json
+```
+
+该检查会调用 `scripts/check_monitoring_rollout.py`，验证真实环境 evidence 已覆盖 Prometheus/Alertmanager ready、target up、告警规则和关键指标加载、通知送达与恢复通知、metrics 代理鉴权、安全边界、至少 24 小时阈值复核和未处理 critical alert 清零。`data/ops-drills/` 已被 `.gitignore` 忽略，不要把真实环境 URL、通知 receiver 或演练记录提交到仓库；格式参考见 `docs/monitoring/monitoring-rollout-evidence.example.json`。
+
 容量观察或阈值校准时，使用采样脚本保存多次快照和汇总：
 
 ```bash

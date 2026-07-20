@@ -103,6 +103,35 @@ python scripts/smoke_monitoring_stack.py --json
 
 该 smoke 会检查 Prometheus readiness、Alertmanager readiness、Prometheus target 是否 `up`、告警规则是否加载，以及关键 `ai_testcase_*` 指标是否已经被抓取。它验证的是本地受控 Compose 链路，不代表生产环境已经完成集中日志、正式通知路由或完整业务周期阈值校准。
 
+## 生产接入 evidence
+
+生产或预发监控接入前，不建议把真实 Prometheus、Alertmanager、Grafana 地址、通知 webhook 或演练记录提交到仓库。真实 evidence 建议保存在已 ignore 的 `data/ops-drills/`，并使用模板记录关键结论：
+
+```bash
+mkdir -p data/ops-drills
+cp docs/monitoring/monitoring-rollout-evidence.example.json \
+  data/ops-drills/monitoring-rollout-evidence.json
+```
+
+替换真实环境字段后执行：
+
+```bash
+python scripts/check_monitoring_rollout.py \
+  --evidence-path data/ops-drills/monitoring-rollout-evidence.json \
+  --json
+```
+
+该检查要求真实接入环境满足：Prometheus 和 Alertmanager ready、`ai-testcase-generator` target 为 `up`、关键指标和告警规则已加载、critical/warning/resolved 通知演练成功、metrics 仍需 API key 且 Prometheus 只抓取内部 proxy、完成至少 24 小时观察窗口的阈值复核，并且没有未处理的 critical alert。
+
+模板本身包含 `example.internal` 占位 URL，直接按生产门禁会失败；只检查模板格式时使用：
+
+```bash
+python scripts/check_monitoring_rollout.py \
+  --evidence-path docs/monitoring/monitoring-rollout-evidence.example.json \
+  --allow-placeholder-values \
+  --json
+```
+
 ## 队列告警演练记录
 
 Redis/RQ 或 MySQL 演练后，建议把队列告警快照保存为证据文件，便于复盘和阈值校准：

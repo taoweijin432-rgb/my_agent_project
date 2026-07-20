@@ -29,6 +29,7 @@ data/*.sqlite
 data/*.sqlite3
 data/llm-eval-cache/
 data/llm-workflow-benchmark-history.jsonl
+data/ops-drills/
 exports/
 logs/
 knowledge_export/
